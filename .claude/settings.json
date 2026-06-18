@@ -3,7 +3,10 @@
     "allow": [
       "Bash(npx next *)",
       "Bash(node -e \"console.log\\(require\\('./node_modules/next/package.json'\\).version\\)\")",
-      "Bash(xargs ls -la)"
+      "Bash(xargs ls -la)",
+      "Bash(vercel --version)",
+      "Bash(git -C /Users/pattapornwarintarawej/Documents/supabase-todo remote -v)",
+      "Bash(git -C /Users/pattapornwarintarawej/Documents/supabase-todo status)"
     ]
   }
 }
