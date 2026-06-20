@@ -39,11 +39,12 @@ function TimetableFormInner() {
   const { theme, toggleTheme } = useTheme();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const editId   = searchParams.get('id');
-  const semParam = searchParams.get('semester') || '1/2026';
-  const isEdit   = !!editId;
+  const editId        = searchParams.get('id');
+  const semParam      = searchParams.get('semester') || '1/2026';
+  const courseCodeParam = searchParams.get('courseCode') || '';
+  const isEdit        = !!editId;
 
-  const [courseCode, setCourseCode] = useState('');
+  const [courseCode, setCourseCode] = useState(courseCodeParam);
   const [courseName, setCourseName] = useState('');
   const [section,    setSection]    = useState('');
   const [credits,    setCredits]    = useState('');
@@ -54,11 +55,32 @@ function TimetableFormInner() {
   const [room,       setRoom]       = useState('');
   const [color,      setColor]      = useState('sky');
   const [weeks,      setWeeks]      = useState<number[]>([]);
+  const [preWeeks,  setPreWeeks]  = useState(0);
 
   const [saving,    setSaving]    = useState(false);
   const [deleting,  setDeleting]  = useState(false);
   const [fetching,  setFetching]  = useState(isEdit);
   const [errorMsg,  setErrorMsg]  = useState('');
+
+  /* Pre-fill course info when adding a new day for an existing course */
+  useEffect(() => {
+    if (editId || !courseCodeParam || !user) return;
+    (async () => {
+      const { data } = await supabase
+        .from('timetable_entries').select('*')
+        .eq('user_id', user.id).eq('semester', semParam)
+        .eq('course_code', courseCodeParam.toUpperCase()).limit(1).single();
+      if (!data) return;
+      setCourseName(data.course_name);
+      setSection(data.section || '');
+      setCredits(data.credits || '');
+      setColor(data.color || 'sky');
+      const loadedWeeks: number[] = data.weeks ?? [];
+      setWeeks(loadedWeeks);
+      const neg = loadedWeeks.filter((w: number) => w < 0);
+      setPreWeeks(neg.length > 0 ? Math.abs(Math.min(...neg)) : 0);
+    })();
+  }, [editId, courseCodeParam, semParam, user]);
 
   /* Load existing entry when editing */
   useEffect(() => {
@@ -77,7 +99,10 @@ function TimetableFormInner() {
       setEndTime(data.end_time ? data.end_time.slice(0, 5) : '');
       setRoom(data.room || '');
       setColor(data.color || 'sky');
-      setWeeks(data.weeks ?? []);
+      const loadedWeeks: number[] = data.weeks ?? [];
+      setWeeks(loadedWeeks);
+      const neg = loadedWeeks.filter((w: number) => w < 0);
+      setPreWeeks(neg.length > 0 ? Math.abs(Math.min(...neg)) : 0);
       setFetching(false);
     })();
   }, [editId, user]);
@@ -111,6 +136,12 @@ function TimetableFormInner() {
         const { error } = await supabase.from('timetable_entries').insert([{ ...payload, user_id: user!.id }]);
         if (error) throw error;
       }
+      // Sync weeks to every session of the same course in this semester
+      await supabase.from('timetable_entries')
+        .update({ weeks })
+        .eq('user_id', user!.id)
+        .eq('semester', semester)
+        .eq('course_code', payload.course_code);
       router.push('/timetable');
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'เกิดข้อผิดพลาด';
@@ -283,50 +314,83 @@ function TimetableFormInner() {
             </div>
 
             {/* ── Weeks ── */}
-            <div className="glass rounded-2xl p-5 border border-slate-200/40 dark:border-white/5 space-y-4">
-              <div className="flex items-center justify-between">
-                <h3 className="text-xs font-extrabold text-slate-400 uppercase tracking-wider">สัปดาห์ที่สอน</h3>
-                <span className="text-[11px] text-slate-400">
-                  {weeks.length === 0 ? 'ทุกสัปดาห์ (1–18)' : `เลือก ${weeks.length} สัปดาห์`}
-                </span>
-              </div>
-              <div className="flex gap-2 flex-wrap">
-                {[
-                  { label: 'ทุกสัปดาห์', value: [] as number[] },
-                  { label: 'สัปดาห์คี่',  value: [1,3,5,7,9,11,13,15,17] },
-                  { label: 'สัปดาห์คู่',  value: [2,4,6,8,10,12,14,16,18] },
-                ].map(({ label, value }) => {
-                  const active = JSON.stringify(weeks) === JSON.stringify(value);
-                  return (
-                    <button key={label} type="button" onClick={() => setWeeks(value)}
-                      className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${active ? 'bg-coral text-white' : 'bg-slate-100 dark:bg-dark-raised text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-dark-surface'}`}>
-                      {label}
-                    </button>
-                  );
-                })}
-              </div>
-              <div className="grid grid-cols-9 gap-1.5">
-                {Array.from({ length: 18 }, (_, i) => i + 1).map(w => {
-                  const active = weeks.length === 0 || weeks.includes(w);
-                  return (
-                    <button key={w} type="button"
-                      onClick={() => {
-                        if (weeks.length === 0) {
-                          setWeeks(Array.from({ length: 18 }, (_, i) => i + 1).filter(x => x !== w));
-                        } else {
-                          const next = weeks.includes(w)
-                            ? weeks.filter(x => x !== w)
-                            : [...weeks, w].sort((a, b) => a - b);
-                          setWeeks(next.length === 18 ? [] : next);
-                        }
-                      }}
-                      className={`aspect-square rounded-xl text-xs font-bold transition-all ${active ? 'bg-coral text-white shadow-sm' : 'bg-slate-100 dark:bg-dark-raised text-slate-400 hover:bg-slate-200 dark:hover:bg-dark-surface'}`}>
-                      {w}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
+            {(() => {
+              const toggleWeek = (w: number) =>
+                setWeeks(prev => prev.includes(w) ? prev.filter(x => x !== w) : [...prev, w].sort((a, b) => a - b));
+              const regularSelected = weeks.filter(w => w > 0).length;
+              const toggleAllRegular = () => {
+                const preClass = weeks.filter(w => w < 0);
+                setWeeks(regularSelected === 18
+                  ? preClass
+                  : [...preClass, ...Array.from({ length: 18 }, (_, i) => i + 1)].sort((a, b) => a - b));
+              };
+              const decreasePreWeeks = () => {
+                const next = Math.max(0, preWeeks - 1);
+                setPreWeeks(next);
+                setWeeks(prev => prev.filter(w => w >= 0 || w >= -next));
+              };
+              const increasePreWeeks = () => {
+                const next = Math.min(8, preWeeks + 1);
+                setPreWeeks(next);
+                setWeeks(prev => prev.includes(-next) ? prev : [...prev, -next].sort((a, b) => a - b));
+              };
+              return (
+                <div className="glass rounded-2xl p-5 border border-slate-200/40 dark:border-white/5 space-y-4">
+                  {/* Header */}
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                    <h3 className="text-xs font-extrabold text-slate-400 uppercase tracking-wider">สัปดาห์ที่สอน</h3>
+                    <div className="flex items-center gap-3">
+                      <span className="text-[11px] text-slate-400">
+                        {weeks.length === 0 ? 'ยังไม่ได้เลือก' : `${weeks.length} สัปดาห์`}
+                      </span>
+                      <button type="button" onClick={toggleAllRegular}
+                        className="px-3 py-1.5 rounded-lg text-xs font-bold bg-slate-100 dark:bg-dark-raised text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-dark-surface transition-all">
+                        {regularSelected === 18 ? 'ยกเลิกทั้งหมด' : 'เลือกทั้งหมด (1–18)'}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Pre-class row */}
+                  <div className="flex items-center gap-3 pb-3 border-b border-slate-100 dark:border-white/5">
+                    <span className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">สัปดาห์ก่อนภาค (pre-class)</span>
+                    <div className="flex items-center gap-1 ml-auto">
+                      <button type="button" onClick={decreasePreWeeks}
+                        className="w-7 h-7 rounded-lg bg-slate-100 dark:bg-dark-raised text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-dark-surface text-base font-bold flex items-center justify-center transition-all">
+                        −
+                      </button>
+                      <span className="w-7 text-center text-sm font-bold text-slate-700 dark:text-white">{preWeeks}</span>
+                      <button type="button" onClick={increasePreWeeks}
+                        className="w-7 h-7 rounded-lg bg-slate-100 dark:bg-dark-raised text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-dark-surface text-base font-bold flex items-center justify-center transition-all">
+                        +
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Pre-class week buttons */}
+                  {preWeeks > 0 && (
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <span className="text-[10px] font-extrabold text-violet-400 uppercase tracking-wider mr-1">ก่อนภาค</span>
+                      {Array.from({ length: preWeeks }, (_, i) => -(preWeeks - i)).map(w => (
+                        <button key={w} type="button" onClick={() => toggleWeek(w)}
+                          className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${weeks.includes(w) ? 'bg-violet-500 text-white shadow-sm' : 'bg-violet-50 dark:bg-violet-900/20 text-violet-400 hover:bg-violet-100 dark:hover:bg-violet-900/30'}`}>
+                          {-w}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Regular week grid */}
+                  <div className="grid grid-cols-9 gap-1.5">
+                    {Array.from({ length: 18 }, (_, i) => i + 1).map(w => (
+                      <button key={w} type="button" onClick={() => toggleWeek(w)}
+                        className={`aspect-square rounded-xl text-xs font-bold transition-all ${weeks.includes(w) ? 'bg-coral text-white shadow-sm' : 'bg-slate-100 dark:bg-dark-raised text-slate-400 hover:bg-slate-200 dark:hover:bg-dark-surface'}`}>
+                        {w}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              );
+            })()}
 
             {/* ── Color ── */}
             <div className="glass rounded-2xl p-5 border border-slate-200/40 dark:border-white/5 space-y-3">

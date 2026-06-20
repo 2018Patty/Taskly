@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/context/auth-context';
@@ -9,6 +9,7 @@ import { supabase } from '@/lib/supabase';
 import {
   LogOut, Sun, Moon, Plus, Grid, ClipboardList, BarChart3,
   Sparkles, User, Layers, Upload, Trash2, Edit2, CalendarDays, Wand2, X, Check,
+  CalendarClock, Settings2,
 } from 'lucide-react';
 
 /* ── Types ── */
@@ -50,7 +51,35 @@ const TOTAL_WEEKS = 18;
 const ALL_WEEKS = Array.from({ length: TOTAL_WEEKS }, (_, i) => i + 1);
 
 function isTaughtInWeek(entry: TimetableEntry, w: number): boolean {
-  return !entry.weeks || entry.weeks.length === 0 || entry.weeks.includes(w);
+  return entry.weeks?.includes(w) ?? false;
+}
+
+/* ── Schedule helpers ── */
+type ScheduleRow = { week: number; date: Date; entry: TimetableEntry };
+
+const THAI_MONTHS = ['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'];
+
+function calcDate(startISO: string, week: number, dayOfWeek: number): Date {
+  const base = new Date(startISO);
+  const d = new Date(base);
+  // week 1 = start of semester, week -1 = 1 week before, week -2 = 2 weeks before
+  const weekOffset = week > 0 ? week - 1 : week;
+  d.setDate(base.getDate() + weekOffset * 7 + (dayOfWeek - 1));
+  return d;
+}
+
+function fmtDateShort(d: Date): string {
+  return `${d.getDate()} ${THAI_MONTHS[d.getMonth()]}`;
+}
+
+function weekDateRange(startISO: string, week: number): string {
+  const mon = calcDate(startISO, week, 1);
+  const fri = calcDate(startISO, week, 5);
+  const yr  = mon.getFullYear();
+  if (mon.getMonth() === fri.getMonth()) {
+    return `${mon.getDate()}–${fri.getDate()} ${THAI_MONTHS[mon.getMonth()]} ${yr}`;
+  }
+  return `${mon.getDate()} ${THAI_MONTHS[mon.getMonth()]}–${fri.getDate()} ${THAI_MONTHS[fri.getMonth()]} ${yr}`;
 }
 
 const DAYS = [
@@ -120,6 +149,8 @@ export default function TimetablePage() {
   const [parsing, setParsing] = useState(false);
   const [parsedEntries, setParsedEntries] = useState<ParsedEntry[] | null>(null);
   const [saveProgress, setSaveProgress] = useState<{ done: number; total: number } | null>(null);
+  const [semesterStart, setSemesterStart] = useState<string>('');
+  const [semesterPreWeeks, setSemesterPreWeeks] = useState<number>(0);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const fetchEntries = useCallback(async () => {
@@ -147,7 +178,25 @@ export default function TimetablePage() {
     if (!user) return;
     const key = `timetable_ref_${semester}_${user.id}`;
     setRefImage(localStorage.getItem(key));
+    setSemesterStart(localStorage.getItem(`timetable_start_${semester}_${user.id}`) || '');
+    setSemesterPreWeeks(Number(localStorage.getItem(`timetable_pre_${semester}_${user.id}`)) || 0);
   }, [semester, user]);
+
+  const handleSemesterStartChange = (val: string) => {
+    setSemesterStart(val);
+    if (!user) return;
+    const key = `timetable_start_${semester}_${user.id}`;
+    if (val) localStorage.setItem(key, val);
+    else localStorage.removeItem(key);
+  };
+
+  const handleSemesterPreWeeksChange = (val: number) => {
+    setSemesterPreWeeks(val);
+    if (!user) return;
+    const key = `timetable_pre_${semester}_${user.id}`;
+    if (val > 0) localStorage.setItem(key, String(val));
+    else localStorage.removeItem(key);
+  };
 
   const handleImgUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -212,6 +261,7 @@ export default function TimetablePage() {
         end_time: e.end_time ?? null,
         room: e.room ?? null,
         color: COLOR_KEYS[i % COLOR_KEYS.length],
+        weeks: ALL_WEEKS,
       });
       setSaveProgress({ done: i + 1, total });
     }
@@ -227,7 +277,7 @@ export default function TimetablePage() {
   };
 
   /* Color map: course_code → color (from DB entry or auto-assigned) */
-  const courseCodes = Array.from(new Set(entries.map(e => e.course_code)));
+  const courseCodes = Array.from(new Set(entries.map(e => e.course_code))).sort();
   const colorMap: Record<string, string> = {};
   courseCodes.forEach((code, i) => {
     const entry = entries.find(e => e.course_code === code);
@@ -239,6 +289,53 @@ export default function TimetablePage() {
     return acc;
   }, {});
   const unspecified = entries.filter(e => !e.day_of_week);
+
+  /* ── Schedule computation ── */
+  const schedule = useMemo<ScheduleRow[]>(() => {
+    if (!semesterStart) return [];
+    const rows: ScheduleRow[] = [];
+    for (const entry of entries) {
+      if (!entry.day_of_week || !entry.start_time || !entry.weeks?.length) continue;
+      for (const week of entry.weeks) {
+        rows.push({ week, date: calcDate(semesterStart, week, entry.day_of_week), entry });
+      }
+    }
+    rows.sort((a, b) => {
+      if (a.week !== b.week) return a.week - b.week;
+      const da = a.entry.day_of_week ?? 0, db = b.entry.day_of_week ?? 0;
+      if (da !== db) return da - db;
+      return (a.entry.start_time || '').localeCompare(b.entry.start_time || '');
+    });
+    return rows;
+  }, [entries, semesterStart]);
+
+  const groupedWeeks = useMemo(() => {
+    const map = new Map<number, ScheduleRow[]>();
+    for (const row of schedule) {
+      if (!map.has(row.week)) map.set(row.week, []);
+      map.get(row.week)!.push(row);
+    }
+    return Array.from(map.entries()).map(([week, rows]) => ({ week, rows }));
+  }, [schedule]);
+
+  const preWeekCount = useMemo(() => {
+    const neg = entries.flatMap(e => (e.weeks || []).filter(w => w < 0));
+    return neg.length > 0 ? Math.abs(Math.min(...neg)) : 0;
+  }, [entries]);
+
+  const extendedWeeks = useMemo(() => {
+    const totalPre = Math.max(preWeekCount, semesterPreWeeks);
+    return [
+      ...Array.from({ length: totalPre }, (_, i) => -(totalPre - i)),
+      ...ALL_WEEKS,
+    ];
+  }, [preWeekCount, semesterPreWeeks]);
+
+  const allScheduleWeeks = useMemo(() => {
+    const weekSet = new Set<number>(groupedWeeks.map(g => g.week));
+    for (let i = semesterPreWeeks; i >= 1; i--) weekSet.add(-i);
+    return Array.from(weekSet).sort((a, b) => a - b);
+  }, [groupedWeeks, semesterPreWeeks]);
 
   if (authLoading) return (
     <div className="flex min-h-screen items-center justify-center bg-slate-50 dark:bg-dark-base">
@@ -353,7 +450,7 @@ export default function TimetablePage() {
                 <Trash2 size={12}/> ลบรูป
               </button>
             </div>
-            <img src={refImage} alt="ตารางสอนอ้างอิง" className="w-full max-h-[480px] object-contain bg-white dark:bg-dark-raised p-4"/>
+            <img src={refImage} alt="ตารางสอนอ้างอิง" className="w-full max-h-120 object-contain bg-white dark:bg-dark-raised p-4"/>
           </div>
         )}
 
@@ -369,7 +466,7 @@ export default function TimetablePage() {
           </div>
 
           <div className="overflow-x-auto">
-            <div className="min-w-[860px] p-4 space-y-0">
+            <div className="min-w-215 p-4 space-y-0">
 
               {/* Time header */}
               <div className="flex mb-1">
@@ -434,6 +531,9 @@ export default function TimetablePage() {
                               top:  `${entry.lane * LANE_H + 3}px`,
                               height: `${LANE_H - 6}px`,
                             }}>
+                            {entry.weeks?.some(w => w < 0) && (
+                              <div className="absolute top-1 right-1 w-2 h-2 rounded-full bg-violet-500 shadow-sm shadow-violet-500/50" title="มีสอนก่อนเปิดภาค"/>
+                            )}
                             <div className="px-2 py-1 h-full overflow-hidden flex flex-col justify-center">
                               <div className={`text-[10px] font-extrabold leading-tight truncate ${col.text}`}>
                                 {entry.course_code}{entry.section ? `(${entry.section})` : ''}
@@ -518,9 +618,13 @@ export default function TimetablePage() {
                   <div className={`px-4 py-3 border-b ${col.light}`}>
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0">
-                        <div className={`text-xs font-extrabold uppercase tracking-wider ${col.text}`}>
-                          {code}
-                          {first.section && <span className="font-semibold"> ({first.section})</span>}
+                        <div className={`flex items-center gap-1.5 flex-wrap text-xs font-extrabold uppercase tracking-wider ${col.text}`}>
+                          <span>{code}{first.section && <span className="font-semibold"> ({first.section})</span>}</span>
+                          {courseEntries.some(e => (e.weeks || []).some(w => w < 0)) && (
+                            <span className="inline-flex items-center text-[9px] font-bold text-violet-600 dark:text-violet-300 bg-violet-100 dark:bg-violet-900/40 border border-violet-300 dark:border-violet-700/50 px-1.5 py-0.5 rounded-md leading-tight normal-case tracking-normal">
+                              ก่อนภาค
+                            </span>
+                          )}
                         </div>
                         <div className="text-sm font-bold text-slate-800 dark:text-slate-900 mt-0.5 leading-tight">{first.course_name}</div>
                         {first.credits && (
@@ -528,9 +632,11 @@ export default function TimetablePage() {
                         )}
                       </div>
                       <button
-                        onClick={() => router.push(`/timetable/form?id=${first.id}&semester=${semester}`)}
-                        className="p-1.5 rounded-lg hover:bg-black/10 transition-colors shrink-0">
-                        <Edit2 size={13} className="text-slate-500"/>
+                        onClick={() => router.push(`/timetable/form?semester=${semester}&courseCode=${first.course_code}`)}
+                        title="เพิ่มวันสอนใหม่"
+                        className="flex items-center gap-1 px-2 py-1 rounded-lg hover:bg-black/10 transition-colors shrink-0 text-slate-500 hover:text-slate-700">
+                        <Plus size={12}/>
+                        <span className="text-[10px] font-bold hidden sm:inline">เพิ่มวัน</span>
                       </button>
                     </div>
                   </div>
@@ -542,6 +648,7 @@ export default function TimetablePage() {
                         <tr>
                           <th className="text-left text-[10px] font-extrabold text-slate-400 uppercase tracking-wider pb-2">วัน/เวลา</th>
                           <th className="text-left text-[10px] font-extrabold text-slate-400 uppercase tracking-wider pb-2">ห้อง</th>
+                          <th className="w-14"/>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100 dark:divide-white/5">
@@ -553,20 +660,26 @@ export default function TimetablePage() {
                                 : 'ไม่ได้ระบุ'}
                             </td>
                             <td className="py-1.5 text-slate-500 dark:text-slate-400">{e.room || '-'}</td>
+                            <td className="py-1.5">
+                              <div className="flex items-center justify-end gap-1">
+                                <button
+                                  onClick={() => router.push(`/timetable/form?id=${e.id}&semester=${semester}`)}
+                                  title="แก้ไข"
+                                  className="p-1 rounded-lg text-slate-400 hover:text-coral hover:bg-coral/10 transition-colors">
+                                  <Edit2 size={11}/>
+                                </button>
+                                <button
+                                  onClick={() => handleDelete(e.id)}
+                                  title="ลบ"
+                                  className="p-1 rounded-lg text-slate-300 dark:text-slate-600 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors">
+                                  <Trash2 size={11}/>
+                                </button>
+                              </div>
+                            </td>
                           </tr>
                         ))}
                       </tbody>
                     </table>
-                    <div className="mt-3 pt-2 border-t border-slate-100 dark:border-white/5 flex justify-end gap-1.5">
-                      {courseEntries.map(e => (
-                        <button key={e.id}
-                          onClick={() => handleDelete(e.id)}
-                          title="ลบรายการนี้"
-                          className="p-1.5 rounded-lg text-slate-300 dark:text-slate-600 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors">
-                          <Trash2 size={12}/>
-                        </button>
-                      ))}
-                    </div>
                   </div>
                 </div>
               );
@@ -579,16 +692,24 @@ export default function TimetablePage() {
           <div className="glass rounded-2xl border border-slate-200/40 dark:border-white/5 overflow-hidden shadow-lg">
             <div className="px-5 py-3 border-b border-slate-200/20 dark:border-white/5">
               <span className="text-sm font-extrabold text-slate-700 dark:text-white">สรุปตารางรายสัปดาห์</span>
-              <span className="text-xs text-slate-400 ml-2">{TOTAL_WEEKS} สัปดาห์ · ภาคเรียน {semester}</span>
+              <span className="text-xs text-slate-400 ml-2">
+                {extendedWeeks.some(w => w < 0) && <span className="text-violet-400 font-bold">+{extendedWeeks.filter(w => w < 0).length} ก่อนภาค · </span>}
+                {TOTAL_WEEKS} สัปดาห์ · ภาคเรียน {semester}
+              </span>
             </div>
-            <div className="overflow-x-auto p-4">
-              <table className="text-xs min-w-max">
+            <div className="p-4">
+              <table className="w-full table-fixed text-xs">
                 <thead>
                   <tr>
-                    <th className="text-left text-[10px] font-extrabold text-slate-400 uppercase tracking-wider pr-4 pb-2 sticky left-0 bg-white dark:bg-dark-surface min-w-30">วิชา</th>
-                    {ALL_WEEKS.map(w => (
-                      <th key={w} className="text-center text-[10px] font-bold text-slate-400 w-8 pb-2">{w}</th>
-                    ))}
+                    <th className="text-left text-[10px] font-extrabold text-slate-400 uppercase tracking-wider pr-3 pb-2 w-52">วิชา</th>
+                    {extendedWeeks.map((w, idx) => {
+                      const isLastPre = w < 0 && idx + 1 < extendedWeeks.length && extendedWeeks[idx + 1] > 0;
+                      return (
+                        <th key={w} className={`text-center text-[10px] font-bold pb-2 px-0.5 ${w < 0 ? 'text-violet-400' : 'text-slate-400'} ${isLastPre ? 'border-r-2 border-violet-300 dark:border-violet-700' : ''}`}>
+                          {w < 0 ? `P${-w}` : w}
+                        </th>
+                      );
+                    })}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 dark:divide-white/5">
@@ -598,17 +719,21 @@ export default function TimetablePage() {
                     const col = COLORS[colorKey] || COLORS.sky;
                     return (
                       <tr key={code}>
-                        <td className="pr-4 py-2 sticky left-0 bg-white dark:bg-dark-surface">
-                          <div className="flex items-center gap-1.5">
-                            <div className={`w-2.5 h-2.5 rounded-full shrink-0 ${col.dot}`}/>
-                            <span className={`font-extrabold whitespace-nowrap ${col.text}`}>{code}</span>
+                        <td className="pr-3 py-2">
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            <div className={`w-2 h-2 rounded-full shrink-0 ${col.dot}`}/>
+                            <div className="min-w-0">
+                              <div className={`font-extrabold text-[11px] truncate ${col.text}`}>{code}</div>
+                              <div className="text-[10px] text-slate-400 truncate leading-tight">{courseEntries[0]?.course_name}</div>
+                            </div>
                           </div>
                         </td>
-                        {ALL_WEEKS.map(w => {
+                        {extendedWeeks.map((w, idx) => {
                           const taught = courseEntries.some(e => isTaughtInWeek(e, w));
+                          const isLastPre = w < 0 && idx + 1 < extendedWeeks.length && extendedWeeks[idx + 1] > 0;
                           return (
-                            <td key={w} className="text-center py-2 w-8">
-                              {taught && <div className={`w-3 h-3 rounded-full mx-auto ${col.dot}`}/>}
+                            <td key={w} className={`py-1 px-0.5 ${isLastPre ? 'border-r-2 border-violet-300 dark:border-violet-700' : ''}`}>
+                              <div className={`h-5 rounded ${taught ? col.dot : ''}`}/>
                             </td>
                           );
                         })}
@@ -621,6 +746,163 @@ export default function TimetablePage() {
             <div className="px-5 py-2.5 border-t border-slate-200/20 dark:border-white/5 flex items-center">
               <span className="text-[10px] text-slate-400 ml-auto">คลิกที่วิชาเพื่อแก้ไขสัปดาห์ที่สอน</span>
             </div>
+          </div>
+        )}
+
+        {/* ── Detailed Teaching Schedule ── */}
+        {!loading && !dbError && entries.length > 0 && (
+          <div className="glass rounded-2xl border border-slate-200/40 dark:border-white/5 overflow-hidden shadow-lg">
+            {/* Header + start-date setting */}
+            <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-3 border-b border-slate-200/20 dark:border-white/5">
+              <div className="flex items-center gap-2">
+                <CalendarClock size={16} className="text-coral"/>
+                <span className="text-sm font-extrabold text-slate-700 dark:text-white">ตารางรายละเอียดการสอน</span>
+              </div>
+              <div className="flex flex-wrap items-center gap-4">
+                <div className="flex items-center gap-1.5">
+                  <span className="text-xs text-slate-400">ก่อนเปิดภาค</span>
+                  <button
+                    onClick={() => handleSemesterPreWeeksChange(Math.max(0, semesterPreWeeks - 1))}
+                    className="w-6 h-6 flex items-center justify-center rounded-lg bg-violet-100 dark:bg-violet-900/30 text-violet-600 dark:text-violet-300 font-bold text-sm hover:bg-violet-200 dark:hover:bg-violet-800/40 transition-colors">
+                    −
+                  </button>
+                  <span className="text-xs font-bold text-violet-600 dark:text-violet-300 w-4 text-center">{semesterPreWeeks}</span>
+                  <button
+                    onClick={() => handleSemesterPreWeeksChange(Math.min(8, semesterPreWeeks + 1))}
+                    className="w-6 h-6 flex items-center justify-center rounded-lg bg-violet-100 dark:bg-violet-900/30 text-violet-600 dark:text-violet-300 font-bold text-sm hover:bg-violet-200 dark:hover:bg-violet-800/40 transition-colors">
+                    +
+                  </button>
+                  <span className="text-xs text-slate-400">สัปดาห์</span>
+                </div>
+                <label className="flex items-center gap-2">
+                  <Settings2 size={13} className="text-slate-400"/>
+                  <span className="text-xs text-slate-400">วันเริ่มสัปดาห์แรก (จันทร์)</span>
+                  <input
+                    type="date"
+                    value={semesterStart}
+                    onChange={e => handleSemesterStartChange(e.target.value)}
+                    className="glass-input rounded-xl px-3 py-1.5 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-coral"
+                  />
+                </label>
+              </div>
+            </div>
+
+            {/* Body */}
+            {!semesterStart ? (
+              <div className="py-12 text-center space-y-1">
+                <CalendarClock size={32} className="mx-auto text-slate-300 dark:text-slate-600 mb-2"/>
+                <p className="text-sm font-bold text-slate-500 dark:text-slate-400">ระบุวันเริ่มต้นภาคเรียนก่อน</p>
+                <p className="text-xs text-slate-400">เลือกวันจันทร์ของสัปดาห์ที่ 1 เพื่อคำนวณวันที่จริง</p>
+              </div>
+            ) : allScheduleWeeks.length === 0 ? (
+              <div className="py-12 text-center">
+                <p className="text-sm text-slate-400">ยังไม่มีวิชาที่กำหนดสัปดาห์ไว้ · ไปที่แต่ละวิชาเพื่อตั้งค่าสัปดาห์</p>
+              </div>
+            ) : (
+              <div>
+                {allScheduleWeeks.map((week, idx) => {
+                  const prevWeek = idx > 0 ? allScheduleWeeks[idx - 1] : null;
+                  const isFirstRegular = week > 0 && prevWeek !== null && prevWeek < 0;
+                  const rows = groupedWeeks.find(g => g.week === week)?.rows ?? [];
+                  return (
+                    <React.Fragment key={week}>
+
+                      {/* ── Semester-start separator ── */}
+                      {isFirstRegular && (
+                        <div className="flex items-center gap-3 px-5 py-3 bg-emerald-50 dark:bg-emerald-950/25 border-y border-emerald-200 dark:border-emerald-800/50">
+                          <div className="flex-1 h-px bg-emerald-300 dark:bg-emerald-700/50"/>
+                          <span className="text-[10px] font-extrabold text-emerald-700 dark:text-emerald-400 uppercase tracking-widest whitespace-nowrap">
+                            เปิดภาคการศึกษา
+                          </span>
+                          <div className="flex-1 h-px bg-emerald-300 dark:bg-emerald-700/50"/>
+                        </div>
+                      )}
+
+                      {/* ── Week block ── */}
+                      <div className={week < 0 ? 'border-l-4 border-violet-400 dark:border-violet-500 bg-violet-50/50 dark:bg-violet-950/20' : ''}>
+
+                        {/* Week header */}
+                        <div className={`flex items-center justify-between px-5 py-2.5 border-b sticky top-0 z-10 ${
+                          week < 0
+                            ? 'bg-violet-100/80 dark:bg-violet-900/50 border-violet-200 dark:border-violet-700/40'
+                            : 'bg-slate-50/80 dark:bg-dark-raised/60 border-slate-200/30 dark:border-white/5'
+                        }`}>
+                          <div className="flex items-center gap-2">
+                            <span className={`text-xs font-extrabold uppercase tracking-wide ${week < 0 ? 'text-violet-700 dark:text-violet-200' : 'text-slate-700 dark:text-slate-200'}`}>
+                              {week < 0 ? `ก่อนเปิดภาค · สัปดาห์ที่ ${-week}` : `สัปดาห์ที่ ${week}`}
+                            </span>
+                            {week < 0 && rows.length > 0 && (
+                              <span className="text-[9px] font-bold text-white bg-violet-500 px-1.5 py-0.5 rounded-full">
+                                {rows.length} คาบ
+                              </span>
+                            )}
+                          </div>
+                          <span className={`text-[11px] ${week < 0 ? 'text-violet-500 dark:text-violet-400' : 'text-slate-400'}`}>
+                            {weekDateRange(semesterStart, week)}
+                          </span>
+                        </div>
+
+                        {/* Session rows or empty-pre-class placeholder */}
+                        {rows.length === 0 && week < 0 ? (
+                          <div className="px-5 py-3.5 flex items-center gap-2.5 border-b border-violet-100 dark:border-violet-900/30">
+                            <div className="w-1 h-6 rounded-full bg-violet-300 dark:bg-violet-700 shrink-0"/>
+                            <span className="text-xs text-violet-500 dark:text-violet-400 italic">ยังไม่มีวิชาที่กำหนดสอนในสัปดาห์นี้</span>
+                          </div>
+                        ) : (
+                          rows.map((row, i) => {
+                            const colorKey = colorMap[row.entry.course_code] || 'sky';
+                            const col = COLORS[colorKey] || COLORS.sky;
+                            const day = DAYS.find(d => d.key === row.entry.day_of_week);
+                            return (
+                              <div
+                                key={i}
+                                onClick={() => router.push(`/timetable/form?id=${row.entry.id}&semester=${semester}`)}
+                                className={`flex items-center gap-3 px-5 py-3 border-b cursor-pointer transition-colors ${
+                                  week < 0
+                                    ? 'border-violet-100 dark:border-violet-900/25 hover:bg-violet-100/60 dark:hover:bg-violet-900/30'
+                                    : 'border-slate-100 dark:border-white/5 hover:bg-slate-50/50 dark:hover:bg-dark-raised/20'
+                                }`}
+                              >
+                                {/* Color bar */}
+                                <div className={`w-1 h-10 rounded-full shrink-0 ${col.dot}`}/>
+
+                                {/* Day + date */}
+                                <div className="w-24 shrink-0">
+                                  <div className={`text-xs font-bold ${week < 0 ? 'text-violet-700 dark:text-violet-200' : 'text-slate-700 dark:text-slate-200'}`}>{day?.th}</div>
+                                  <div className={`text-[11px] ${week < 0 ? 'text-violet-400 dark:text-violet-500' : 'text-slate-400'}`}>{fmtDateShort(row.date)}</div>
+                                </div>
+
+                                {/* Course info */}
+                                <div className="flex-1 min-w-0">
+                                  <div className={`text-xs font-extrabold ${col.text}`}>
+                                    {row.entry.course_code}
+                                    {row.entry.section ? <span className="font-semibold opacity-70 ml-1">(Sec {row.entry.section})</span> : null}
+                                  </div>
+                                  <div className={`text-[11px] truncate ${week < 0 ? 'text-violet-700/70 dark:text-violet-300/70' : 'text-slate-600 dark:text-slate-300'}`}>{row.entry.course_name}</div>
+                                </div>
+
+                                {/* Time */}
+                                <div className={`text-xs shrink-0 whitespace-nowrap font-medium ${week < 0 ? 'text-violet-600 dark:text-violet-300' : 'text-slate-500 dark:text-slate-400'}`}>
+                                  {fmtTime(row.entry.start_time)}–{fmtTime(row.entry.end_time)}
+                                </div>
+
+                                {/* Room */}
+                                {row.entry.room && (
+                                  <div className={`text-xs shrink-0 hidden sm:block ${week < 0 ? 'text-violet-400 dark:text-violet-500' : 'text-slate-400'}`}>{row.entry.room}</div>
+                                )}
+                              </div>
+                            );
+                          })
+                        )}
+                      </div>
+                    </React.Fragment>
+                  );
+                })}
+                <div className="px-5 py-2.5 text-right">
+                  <span className="text-[10px] text-slate-400">{schedule.length} คาบ · คลิกเพื่อแก้ไข</span>
+                </div>
+              </div>
+            )}
           </div>
         )}
 
