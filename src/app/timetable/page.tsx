@@ -8,10 +8,21 @@ import { useTheme } from '@/context/theme-context';
 import { supabase } from '@/lib/supabase';
 import {
   LogOut, Sun, Moon, Plus, Grid, ClipboardList, BarChart3,
-  Sparkles, User, Layers, Upload, Trash2, Edit2, CalendarDays,
+  Sparkles, User, Layers, Upload, Trash2, Edit2, CalendarDays, Wand2, X, Check,
 } from 'lucide-react';
 
 /* ── Types ── */
+type ParsedEntry = {
+  course_code: string;
+  course_name: string;
+  section: string | null;
+  credits: string | null;
+  day_of_week: number | null;
+  start_time: string | null;
+  end_time: string | null;
+  room: string | null;
+};
+
 export type TimetableEntry = {
   id: string;
   user_id: string;
@@ -99,6 +110,9 @@ export default function TimetablePage() {
   const [semester, setSemester] = useState('1/2026');
   const [refImage, setRefImage] = useState<string | null>(null);
   const [uploadingImg, setUploadingImg] = useState(false);
+  const [parsing, setParsing] = useState(false);
+  const [parsedEntries, setParsedEntries] = useState<ParsedEntry[] | null>(null);
+  const [saveProgress, setSaveProgress] = useState<{ done: number; total: number } | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const fetchEntries = useCallback(async () => {
@@ -152,6 +166,51 @@ export default function TimetablePage() {
     if (!user) return;
     setRefImage(null);
     localStorage.removeItem(`timetable_ref_${semester}_${user.id}`);
+  };
+
+  const handleAutoParse = async () => {
+    if (!refImage) return;
+    setParsing(true);
+    try {
+      const res = await fetch('/api/parse-timetable', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ imageUrl: refImage }),
+      });
+      const { entries } = await res.json();
+      setParsedEntries(entries ?? []);
+    } catch (err) {
+      console.error('Parse error:', err);
+      setParsedEntries([]);
+    } finally {
+      setParsing(false);
+    }
+  };
+
+  const handleSaveParsed = async () => {
+    if (!parsedEntries || !user) return;
+    const total = parsedEntries.length;
+    setSaveProgress({ done: 0, total });
+    for (let i = 0; i < parsedEntries.length; i++) {
+      const e = parsedEntries[i];
+      await supabase.from('timetable_entries').insert({
+        user_id: user.id,
+        semester,
+        course_code: e.course_code,
+        course_name: e.course_name,
+        section: e.section ?? null,
+        credits: e.credits ?? null,
+        day_of_week: e.day_of_week ?? null,
+        start_time: e.start_time ?? null,
+        end_time: e.end_time ?? null,
+        room: e.room ?? null,
+        color: COLOR_KEYS[i % COLOR_KEYS.length],
+      });
+      setSaveProgress({ done: i + 1, total });
+    }
+    setParsedEntries(null);
+    setSaveProgress(null);
+    fetchEntries();
   };
 
   const handleDelete = async (id: string) => {
@@ -251,6 +310,17 @@ export default function TimetablePage() {
               อัปโหลดรูปตาราง
             </button>
             <input ref={fileRef} type="file" accept="image/*" onChange={handleImgUpload} className="hidden"/>
+            {refImage && (
+              <button
+                onClick={handleAutoParse}
+                disabled={parsing}
+                className="flex items-center gap-2 px-4 py-2 rounded-xl bg-violet-500 text-white text-sm font-bold hover:bg-violet-600 shadow-md shadow-violet-500/20 transition-all disabled:opacity-60">
+                {parsing
+                  ? <div className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent"/>
+                  : <Wand2 size={15}/>}
+                วิเคราะห์รูปอัตโนมัติ
+              </button>
+            )}
             <button
               onClick={() => router.push(`/timetable/form?semester=${semester}`)}
               className="flex items-center gap-2 px-4 py-2 rounded-xl bg-coral text-white text-sm font-bold hover:bg-coral/90 shadow-md shadow-coral/20 transition-all">
@@ -513,6 +583,84 @@ export default function TimetablePage() {
           </div>
         )}
       </main>
+
+      {/* ── Auto-parse confirmation modal ── */}
+      {parsedEntries !== null && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+          <div className="w-full max-w-2xl max-h-[80vh] flex flex-col bg-white dark:bg-dark-surface rounded-2xl shadow-2xl border border-slate-200/50 dark:border-white/10 overflow-hidden">
+            {/* Modal header */}
+            <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200/20 dark:border-white/5">
+              <div className="flex items-center gap-2">
+                <Wand2 size={18} className="text-violet-500"/>
+                <span className="text-sm font-extrabold text-slate-800 dark:text-white">ผลการวิเคราะห์</span>
+                <span className="text-xs text-slate-400">({parsedEntries.length} วิชา)</span>
+              </div>
+              <button onClick={() => setParsedEntries(null)} className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-white/10 transition-colors">
+                <X size={16} className="text-slate-500"/>
+              </button>
+            </div>
+
+            {/* Entry list */}
+            <div className="overflow-y-auto flex-1 p-4 space-y-2">
+              {parsedEntries.length === 0 ? (
+                <p className="text-center text-sm text-slate-500 py-8">ไม่พบข้อมูลวิชาในรูปภาพนี้</p>
+              ) : (
+                parsedEntries.map((e, i) => {
+                  const dayName = e.day_of_week ? DAYS.find(d => d.key === e.day_of_week)?.en : null;
+                  return (
+                    <div key={i} className="flex items-start gap-3 p-3 rounded-xl bg-slate-50 dark:bg-dark-raised border border-slate-200/40 dark:border-white/5">
+                      <div className={`w-2.5 h-2.5 rounded-full mt-1.5 shrink-0 ${COLORS[COLOR_KEYS[i % COLOR_KEYS.length]]?.dot}`}/>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-baseline gap-2 flex-wrap">
+                          <span className="text-xs font-extrabold text-slate-800 dark:text-white">{e.course_code}</span>
+                          {e.section && <span className="text-xs text-slate-500">(Sec {e.section})</span>}
+                          <span className="text-xs text-slate-600 dark:text-slate-300 truncate">{e.course_name}</span>
+                          {e.credits && <span className="text-[10px] text-slate-400 shrink-0">{e.credits}</span>}
+                        </div>
+                        <div className="flex gap-3 mt-0.5 flex-wrap">
+                          {dayName && <span className="text-[10px] text-slate-500">{dayName}</span>}
+                          {e.start_time && e.end_time && (
+                            <span className="text-[10px] text-slate-500">{e.start_time}–{e.end_time}</span>
+                          )}
+                          {e.room && <span className="text-[10px] text-slate-500">ห้อง {e.room}</span>}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+
+            {/* Modal footer */}
+            {parsedEntries.length > 0 && (
+              <div className="flex items-center justify-between px-5 py-4 border-t border-slate-200/20 dark:border-white/5 bg-slate-50/50 dark:bg-dark-raised/30">
+                {saveProgress ? (
+                  <div className="flex items-center gap-2 text-xs text-slate-500">
+                    <div className="h-3 w-3 animate-spin rounded-full border-2 border-coral border-t-transparent"/>
+                    กำลังบันทึก {saveProgress.done}/{saveProgress.total} วิชา...
+                  </div>
+                ) : (
+                  <p className="text-xs text-slate-400">ตรวจสอบข้อมูลก่อนบันทึก</p>
+                )}
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setParsedEntries(null)}
+                    disabled={!!saveProgress}
+                    className="px-4 py-2 rounded-xl text-sm font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-white/10 transition-colors disabled:opacity-50">
+                    ยกเลิก
+                  </button>
+                  <button
+                    onClick={handleSaveParsed}
+                    disabled={!!saveProgress}
+                    className="flex items-center gap-2 px-4 py-2 rounded-xl bg-coral text-white text-sm font-bold hover:bg-coral/90 shadow-md shadow-coral/20 transition-all disabled:opacity-60">
+                    <Check size={14}/> บันทึกทั้งหมด
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
