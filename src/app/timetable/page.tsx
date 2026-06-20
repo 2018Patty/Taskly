@@ -608,9 +608,7 @@ export default function TimetablePage() {
                           const taught = courseEntries.some(e => isTaughtInWeek(e, w));
                           return (
                             <td key={w} className="text-center py-2 w-8">
-                              {taught
-                                ? <div className={`w-3 h-3 rounded-full mx-auto ${col.dot}`}/>
-                                : <div className="w-3 h-3 rounded-full mx-auto bg-slate-100 dark:bg-white/5"/>}
+                              {taught && <div className={`w-3 h-3 rounded-full mx-auto ${col.dot}`}/>}
                             </td>
                           );
                         })}
@@ -620,15 +618,7 @@ export default function TimetablePage() {
                 </tbody>
               </table>
             </div>
-            <div className="px-5 py-2.5 border-t border-slate-200/20 dark:border-white/5 flex items-center gap-4">
-              <div className="flex items-center gap-1.5">
-                <div className="w-3 h-3 rounded-full bg-slate-400"/>
-                <span className="text-[10px] text-slate-400">สอน</span>
-              </div>
-              <div className="flex items-center gap-1.5">
-                <div className="w-3 h-3 rounded-full bg-slate-100 dark:bg-white/5 border border-slate-200 dark:border-white/10"/>
-                <span className="text-[10px] text-slate-400">ไม่สอน</span>
-              </div>
+            <div className="px-5 py-2.5 border-t border-slate-200/20 dark:border-white/5 flex items-center">
               <span className="text-[10px] text-slate-400 ml-auto">คลิกที่วิชาเพื่อแก้ไขสัปดาห์ที่สอน</span>
             </div>
           </div>
