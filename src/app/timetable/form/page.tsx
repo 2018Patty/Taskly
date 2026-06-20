@@ -53,6 +53,7 @@ function TimetableFormInner() {
   const [endTime,    setEndTime]    = useState('');
   const [room,       setRoom]       = useState('');
   const [color,      setColor]      = useState('sky');
+  const [weeks,      setWeeks]      = useState<number[]>([]);
 
   const [saving,    setSaving]    = useState(false);
   const [deleting,  setDeleting]  = useState(false);
@@ -76,6 +77,7 @@ function TimetableFormInner() {
       setEndTime(data.end_time ? data.end_time.slice(0, 5) : '');
       setRoom(data.room || '');
       setColor(data.color || 'sky');
+      setWeeks(data.weeks ?? []);
       setFetching(false);
     })();
   }, [editId, user]);
@@ -100,6 +102,7 @@ function TimetableFormInner() {
         end_time:    endTime || null,
         room:        room.trim() || null,
         color,
+        weeks,
       };
       if (isEdit) {
         const { error } = await supabase.from('timetable_entries').update(payload).eq('id', editId!);
@@ -276,6 +279,52 @@ function TimetableFormInner() {
                   onChange={e => setRoom(e.target.value)}
                   placeholder="เช่น UD265, LC202"
                   className="w-full rounded-2xl glass-input px-4 py-3 text-sm text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-coral transition-all"/>
+              </div>
+            </div>
+
+            {/* ── Weeks ── */}
+            <div className="glass rounded-2xl p-5 border border-slate-200/40 dark:border-white/5 space-y-4">
+              <div className="flex items-center justify-between">
+                <h3 className="text-xs font-extrabold text-slate-400 uppercase tracking-wider">สัปดาห์ที่สอน</h3>
+                <span className="text-[11px] text-slate-400">
+                  {weeks.length === 0 ? 'ทุกสัปดาห์ (1–18)' : `เลือก ${weeks.length} สัปดาห์`}
+                </span>
+              </div>
+              <div className="flex gap-2 flex-wrap">
+                {[
+                  { label: 'ทุกสัปดาห์', value: [] as number[] },
+                  { label: 'สัปดาห์คี่',  value: [1,3,5,7,9,11,13,15,17] },
+                  { label: 'สัปดาห์คู่',  value: [2,4,6,8,10,12,14,16,18] },
+                ].map(({ label, value }) => {
+                  const active = JSON.stringify(weeks) === JSON.stringify(value);
+                  return (
+                    <button key={label} type="button" onClick={() => setWeeks(value)}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${active ? 'bg-coral text-white' : 'bg-slate-100 dark:bg-dark-raised text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-dark-surface'}`}>
+                      {label}
+                    </button>
+                  );
+                })}
+              </div>
+              <div className="grid grid-cols-9 gap-1.5">
+                {Array.from({ length: 18 }, (_, i) => i + 1).map(w => {
+                  const active = weeks.length === 0 || weeks.includes(w);
+                  return (
+                    <button key={w} type="button"
+                      onClick={() => {
+                        if (weeks.length === 0) {
+                          setWeeks(Array.from({ length: 18 }, (_, i) => i + 1).filter(x => x !== w));
+                        } else {
+                          const next = weeks.includes(w)
+                            ? weeks.filter(x => x !== w)
+                            : [...weeks, w].sort((a, b) => a - b);
+                          setWeeks(next.length === 18 ? [] : next);
+                        }
+                      }}
+                      className={`aspect-square rounded-xl text-xs font-bold transition-all ${active ? 'bg-coral text-white shadow-sm' : 'bg-slate-100 dark:bg-dark-raised text-slate-400 hover:bg-slate-200 dark:hover:bg-dark-surface'}`}>
+                      {w}
+                    </button>
+                  );
+                })}
               </div>
             </div>
 

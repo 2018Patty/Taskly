@@ -174,3 +174,7 @@ create policy "Users can update their own timetable_entries"
 
 create policy "Users can delete their own timetable_entries"
   on public.timetable_entries for delete using (auth.uid() = user_id);
+
+-- เพิ่มคอลัมน์ weeks สำหรับระบุสัปดาห์ที่สอน (array ว่าง = สอนทุกสัปดาห์)
+alter table public.timetable_entries
+  add column if not exists weeks int[] not null default '{}'::int[];

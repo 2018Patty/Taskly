@@ -36,6 +36,7 @@ export type TimetableEntry = {
   end_time: string | null;
   room: string | null;
   color: string;
+  weeks: number[];
   created_at: string;
 };
 
@@ -45,6 +46,12 @@ const TIME_END = 17 * 60;
 const TOTAL_MIN = TIME_END - TIME_START;
 const HOURS = [8, 9, 10, 11, 12, 13, 14, 15, 16, 17];
 const LANE_H = 54;
+const TOTAL_WEEKS = 18;
+const ALL_WEEKS = Array.from({ length: TOTAL_WEEKS }, (_, i) => i + 1);
+
+function isTaughtInWeek(entry: TimetableEntry, w: number): boolean {
+  return !entry.weeks || entry.weeks.length === 0 || entry.weeks.includes(w);
+}
 
 const DAYS = [
   { key: 1, th: 'จันทร์',    en: 'Monday' },
@@ -566,6 +573,66 @@ export default function TimetablePage() {
             })}
           </div>
         ) : null}
+
+        {/* ── Weekly Summary ── */}
+        {!loading && !dbError && entries.length > 0 && (
+          <div className="glass rounded-2xl border border-slate-200/40 dark:border-white/5 overflow-hidden shadow-lg">
+            <div className="px-5 py-3 border-b border-slate-200/20 dark:border-white/5">
+              <span className="text-sm font-extrabold text-slate-700 dark:text-white">สรุปตารางรายสัปดาห์</span>
+              <span className="text-xs text-slate-400 ml-2">{TOTAL_WEEKS} สัปดาห์ · ภาคเรียน {semester}</span>
+            </div>
+            <div className="overflow-x-auto p-4">
+              <table className="text-xs min-w-max">
+                <thead>
+                  <tr>
+                    <th className="text-left text-[10px] font-extrabold text-slate-400 uppercase tracking-wider pr-4 pb-2 sticky left-0 bg-white dark:bg-dark-surface min-w-30">วิชา</th>
+                    {ALL_WEEKS.map(w => (
+                      <th key={w} className="text-center text-[10px] font-bold text-slate-400 w-8 pb-2">{w}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 dark:divide-white/5">
+                  {courseCodes.map(code => {
+                    const courseEntries = entries.filter(e => e.course_code === code);
+                    const colorKey = colorMap[code] || 'sky';
+                    const col = COLORS[colorKey] || COLORS.sky;
+                    return (
+                      <tr key={code}>
+                        <td className="pr-4 py-2 sticky left-0 bg-white dark:bg-dark-surface">
+                          <div className="flex items-center gap-1.5">
+                            <div className={`w-2.5 h-2.5 rounded-full shrink-0 ${col.dot}`}/>
+                            <span className={`font-extrabold whitespace-nowrap ${col.text}`}>{code}</span>
+                          </div>
+                        </td>
+                        {ALL_WEEKS.map(w => {
+                          const taught = courseEntries.some(e => isTaughtInWeek(e, w));
+                          return (
+                            <td key={w} className="text-center py-2 w-8">
+                              {taught
+                                ? <div className={`w-3 h-3 rounded-full mx-auto ${col.dot}`}/>
+                                : <div className="w-3 h-3 rounded-full mx-auto bg-slate-100 dark:bg-white/5"/>}
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+            <div className="px-5 py-2.5 border-t border-slate-200/20 dark:border-white/5 flex items-center gap-4">
+              <div className="flex items-center gap-1.5">
+                <div className="w-3 h-3 rounded-full bg-slate-400"/>
+                <span className="text-[10px] text-slate-400">สอน</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <div className="w-3 h-3 rounded-full bg-slate-100 dark:bg-white/5 border border-slate-200 dark:border-white/10"/>
+                <span className="text-[10px] text-slate-400">ไม่สอน</span>
+              </div>
+              <span className="text-[10px] text-slate-400 ml-auto">คลิกที่วิชาเพื่อแก้ไขสัปดาห์ที่สอน</span>
+            </div>
+          </div>
+        )}
 
         {/* ── Empty state ── */}
         {!loading && !dbError && entries.length === 0 && (
