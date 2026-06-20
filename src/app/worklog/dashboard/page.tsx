@@ -259,6 +259,7 @@ export default function WorklogDashboard() {
             {navLink('/todos', <Layers size={13} />, 'TodoList')}
             {navLink('/worklog', <ClipboardList size={13} />, 'บันทึกภาระงาน')}
             {navLink('/worklog/dashboard', <BarChart3 size={13} />, 'Dashboard', true)}
+            {navLink('/timetable', <CalendarDays size={13} />, 'ตารางสอน')}
           </nav>
           <div className="flex items-center gap-3">
             <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-xl bg-white/20 border border-white/30">

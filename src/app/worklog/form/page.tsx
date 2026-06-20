@@ -13,7 +13,7 @@ import {
 } from '@/lib/worklog-types';
 import {
   ArrowLeft, Upload, Trash2, Calendar, Clock, Tag, Timer,
-  Sparkles, Sun, Moon, LogOut, User, Grid, ClipboardList, BarChart3, Save, Layers,
+  Sparkles, Sun, Moon, LogOut, User, Grid, ClipboardList, BarChart3, Save, Layers, CalendarDays,
 } from 'lucide-react';
 
 /* ── Inner form (uses useSearchParams — must be in Suspense) ── */
@@ -153,10 +153,11 @@ function WorklogFormInner() {
             </div>
           </div>
           <nav className="hidden md:flex items-center gap-1 bg-white/15 rounded-xl p-1 border border-white/20">
-            <NavLink href="/"                  icon={<Grid size={13}/>}         label="หน้าหลัก" />
-            <NavLink href="/todos"             icon={<Layers size={13}/>}       label="TodoList" />
-            <NavLink href="/worklog"           icon={<ClipboardList size={13}/>} label="บันทึกภาระงาน" active />
-            <NavLink href="/worklog/dashboard" icon={<BarChart3 size={13}/>}    label="Dashboard" />
+            <NavLink href="/"                  icon={<Grid size={13}/>}           label="หน้าหลัก" />
+            <NavLink href="/todos"             icon={<Layers size={13}/>}         label="TodoList" />
+            <NavLink href="/worklog"           icon={<ClipboardList size={13}/>}  label="บันทึกภาระงาน" active />
+            <NavLink href="/worklog/dashboard" icon={<BarChart3 size={13}/>}      label="Dashboard" />
+            <NavLink href="/timetable"         icon={<CalendarDays size={13}/>}   label="ตารางสอน" />
           </nav>
           <div className="flex items-center gap-2">
             <button onClick={toggleTheme} className="p-2 rounded-xl text-white hover:bg-white/20 transition-all">

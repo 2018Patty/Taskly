@@ -17,7 +17,7 @@ import {
   LogOut, Sun, Moon, Plus, Grid, Clock, User, Sparkles,
   ClipboardList, BarChart3, ChevronRight, ChevronLeft,
   CheckCircle, AlertCircle, Circle, ArrowRight,
-  ImageIcon, Layers, Search,
+  ImageIcon, Layers, Search, CalendarDays,
 } from 'lucide-react';
 
 /* ── helpers ── */
@@ -139,10 +139,11 @@ export default function HomePage() {
             </div>
           </div>
           <nav className="hidden md:flex items-center gap-1 bg-white/15 rounded-xl p-1 border border-white/20">
-            <NavLink href="/"                  icon={<Grid size={13}/>}         label="หน้าหลัก"        active />
-            <NavLink href="/todos"             icon={<Layers size={13}/>}       label="TodoList" />
-            <NavLink href="/worklog"           icon={<ClipboardList size={13}/>} label="บันทึกภาระงาน" />
-            <NavLink href="/worklog/dashboard" icon={<BarChart3 size={13}/>}    label="Dashboard" />
+            <NavLink href="/"                  icon={<Grid size={13}/>}           label="หน้าหลัก"        active />
+            <NavLink href="/todos"             icon={<Layers size={13}/>}         label="TodoList" />
+            <NavLink href="/worklog"           icon={<ClipboardList size={13}/>}  label="บันทึกภาระงาน" />
+            <NavLink href="/worklog/dashboard" icon={<BarChart3 size={13}/>}      label="Dashboard" />
+            <NavLink href="/timetable"         icon={<CalendarDays size={13}/>}   label="ตารางสอน" />
           </nav>
           <div className="flex items-center gap-3">
             <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-xl bg-white/20 border border-white/30">

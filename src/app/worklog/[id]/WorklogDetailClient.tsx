@@ -15,7 +15,7 @@ import {
 import {
   ArrowLeft, Calendar, Tag, Timer, Edit3, Trash2,
   ChevronLeft, ChevronRight, Maximize2, Share2, Check, Copy,
-  Sparkles, Sun, Moon, LogOut, User, Grid, ClipboardList, BarChart3, X, Layers,
+  Sparkles, Sun, Moon, LogOut, User, Grid, ClipboardList, BarChart3, X, Layers, CalendarDays,
 } from 'lucide-react';
 
 export default function WorklogDetailClient({ id }: { id: string }) {
@@ -148,10 +148,11 @@ export default function WorklogDetailClient({ id }: { id: string }) {
             </div>
           </div>
           <nav className="hidden md:flex items-center gap-1 bg-white/15 rounded-xl p-1 border border-white/20">
-            <NavLink href="/"                  icon={<Grid size={13}/>}         label="หน้าหลัก" />
-            <NavLink href="/todos"             icon={<Layers size={13}/>}       label="TodoList" />
-            <NavLink href="/worklog"           icon={<ClipboardList size={13}/>} label="บันทึกภาระงาน" active />
-            <NavLink href="/worklog/dashboard" icon={<BarChart3 size={13}/>}    label="Dashboard" />
+            <NavLink href="/"                  icon={<Grid size={13}/>}           label="หน้าหลัก" />
+            <NavLink href="/todos"             icon={<Layers size={13}/>}         label="TodoList" />
+            <NavLink href="/worklog"           icon={<ClipboardList size={13}/>}  label="บันทึกภาระงาน" active />
+            <NavLink href="/worklog/dashboard" icon={<BarChart3 size={13}/>}      label="Dashboard" />
+            <NavLink href="/timetable"         icon={<CalendarDays size={13}/>}   label="ตารางสอน" />
           </nav>
           <div className="flex items-center gap-2">
             {user && <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-xl bg-white/20 border border-white/30">

@@ -139,3 +139,38 @@ $$;
 
 -- อนุญาตให้ anon role เรียกใช้ฟังก์ชันนี้ได้
 grant execute on function get_worklog_share_data(uuid) to anon;
+
+-- ============================================================
+-- ตาราง timetable_entries สำหรับบันทึกตารางสอน
+-- รันส่วนนี้ใน Supabase SQL Editor เพื่อเปิดใช้เมนูตารางสอน
+-- ============================================================
+
+create table if not exists public.timetable_entries (
+  id           uuid                     default gen_random_uuid() primary key,
+  user_id      uuid                     not null default auth.uid() references auth.users(id) on delete cascade,
+  semester     text                     not null default '1/2026',
+  course_code  text                     not null,
+  course_name  text                     not null,
+  section      text,
+  credits      text,
+  day_of_week  int,   -- 1=จันทร์, 2=อังคาร, 3=พุธ, 4=พฤหัส, 5=ศุกร์, null=ไม่ระบุ
+  start_time   time,
+  end_time     time,
+  room         text,
+  color        text                     not null default 'sky',
+  created_at   timestamp with time zone not null default now()
+);
+
+alter table public.timetable_entries enable row level security;
+
+create policy "Users can read their own timetable_entries"
+  on public.timetable_entries for select using (auth.uid() = user_id);
+
+create policy "Users can insert their own timetable_entries"
+  on public.timetable_entries for insert with check (auth.uid() = user_id);
+
+create policy "Users can update their own timetable_entries"
+  on public.timetable_entries for update using (auth.uid() = user_id) with check (auth.uid() = user_id);
+
+create policy "Users can delete their own timetable_entries"
+  on public.timetable_entries for delete using (auth.uid() = user_id);

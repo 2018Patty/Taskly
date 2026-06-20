@@ -132,10 +132,11 @@ export default function TodosPage() {
           </div>
 
           <nav className="hidden md:flex items-center gap-1 bg-white/15 rounded-xl p-1 border border-white/20">
-            <NavLink href="/"                  icon={<Grid size={13}/>}         label="หน้าหลัก" />
-            <NavLink href="/todos"             icon={<Layers size={13}/>}       label="TodoList" active />
-            <NavLink href="/worklog"           icon={<ClipboardList size={13}/>} label="บันทึกภาระงาน" />
-            <NavLink href="/worklog/dashboard" icon={<BarChart3 size={13}/>}    label="Dashboard" />
+            <NavLink href="/"                  icon={<Grid size={13}/>}           label="หน้าหลัก" />
+            <NavLink href="/todos"             icon={<Layers size={13}/>}         label="TodoList" active />
+            <NavLink href="/worklog"           icon={<ClipboardList size={13}/>}  label="บันทึกภาระงาน" />
+            <NavLink href="/worklog/dashboard" icon={<BarChart3 size={13}/>}      label="Dashboard" />
+            <NavLink href="/timetable"         icon={<CalendarDays size={13}/>}   label="ตารางสอน" />
           </nav>
 
           <div className="flex items-center gap-3">

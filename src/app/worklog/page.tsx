@@ -18,7 +18,7 @@ import {
 } from '@/lib/worklog-types';
 import {
   LogOut, Sun, Moon, Plus, Search, ClipboardList, Grid,
-  Sparkles, User, Timer, Calendar, SlidersHorizontal, BookOpen, BarChart3, Layers,
+  Sparkles, User, Timer, Calendar, SlidersHorizontal, BookOpen, BarChart3, Layers, CalendarDays,
 } from 'lucide-react';
 
 export default function WorklogPage() {
@@ -112,6 +112,7 @@ export default function WorklogPage() {
             <Link href="/todos" className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-white/70 hover:text-white hover:bg-white/15 transition-all"><Layers size={13}/><span>TodoList</span></Link>
             <span className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-white/25 text-white shadow-sm"><ClipboardList size={13}/><span>บันทึกภาระงาน</span></span>
             <Link href="/worklog/dashboard" className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-white/70 hover:text-white hover:bg-white/15 transition-all"><BarChart3 size={13}/><span>Dashboard</span></Link>
+            <Link href="/timetable" className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-white/70 hover:text-white hover:bg-white/15 transition-all"><CalendarDays size={13}/><span>ตารางสอน</span></Link>
           </nav>
 
           {/* Right */}
