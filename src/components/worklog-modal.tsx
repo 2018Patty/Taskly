@@ -21,6 +21,7 @@ interface WorklogModalProps {
 
 export default function WorklogModal({ isOpen, onClose, onSave, log }: WorklogModalProps) {
   const [workDate, setWorkDate]         = useState('');
+  const [endDate, setEndDate]           = useState('');
   const [title, setTitle]               = useState('');
   const [description, setDescription]   = useState('');
   const [startTime, setStartTime]       = useState('09:00');
@@ -47,6 +48,7 @@ export default function WorklogModal({ isOpen, onClose, onSave, log }: WorklogMo
 
     if (log) {
       setWorkDate(log.work_date);
+      setEndDate(log.end_date || log.work_date);
       setTitle(log.title);
       setDescription(log.description ?? '');
       setStartTime(log.start_time.slice(0, 5));
@@ -58,6 +60,7 @@ export default function WorklogModal({ isOpen, onClose, onSave, log }: WorklogMo
     } else {
       const today = new Date().toISOString().split('T')[0];
       setWorkDate(today);
+      setEndDate(today);
       setTitle('');
       setDescription('');
       setStartTime('09:00');
@@ -111,6 +114,8 @@ export default function WorklogModal({ isOpen, onClose, onSave, log }: WorklogMo
     e.preventDefault();
     if (!title.trim()) { setErrorMsg('กรุณากรอกชื่องาน'); return; }
     if (!workDate)     { setErrorMsg('กรุณาระบุวันที่ปฏิบัติงาน'); return; }
+    if (!endDate)      { setErrorMsg('กรุณาระบุวันสิ้นสุด'); return; }
+    if (endDate < workDate) { setErrorMsg('วันสิ้นสุดต้องไม่ก่อนวันที่เริ่มต้น'); return; }
     if (hours <= 0)    { setErrorMsg('เวลาสิ้นสุดต้องหลังเวลาเริ่มต้น'); return; }
     if (showRoleInput && !workTypeRole.trim()) { setErrorMsg('กรุณาระบุฐานะ/บทบาท'); return; }
 
@@ -121,6 +126,7 @@ export default function WorklogModal({ isOpen, onClose, onSave, log }: WorklogMo
       if (newImageFiles.length > 0) uploadedUrls = await uploadTodoImages(newImageFiles);
       await onSave({
         work_date:      workDate,
+        end_date:       endDate,
         title:          title.trim(),
         description:    description.trim() || null,
         start_time:     startTime,
@@ -208,7 +214,10 @@ export default function WorklogModal({ isOpen, onClose, onSave, log }: WorklogMo
                     type="date"
                     required
                     value={workDate}
-                    onChange={e => setWorkDate(e.target.value)}
+                    onChange={e => {
+                      setWorkDate(e.target.value);
+                      if (!endDate || endDate < e.target.value) setEndDate(e.target.value);
+                    }}
                     className="w-full rounded-xl glass-input px-3 py-2.5 text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-coral transition-all"
                   />
                 </div>
@@ -235,11 +244,16 @@ export default function WorklogModal({ isOpen, onClose, onSave, log }: WorklogMo
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-[10px] font-bold text-slate-400 dark:text-slate-500 mb-1 uppercase tracking-wider">
-                    วันที่
+                    วันที่ *
                   </label>
-                  <div className="w-full rounded-xl px-3 py-2.5 text-sm text-slate-400 dark:text-slate-500 bg-slate-100/60 dark:bg-dark-raised/60 border border-slate-200/40 dark:border-white/5 select-none">
-                    วันเดียวกัน
-                  </div>
+                  <input
+                    type="date"
+                    required
+                    min={workDate}
+                    value={endDate}
+                    onChange={e => setEndDate(e.target.value)}
+                    className="w-full rounded-xl glass-input px-3 py-2.5 text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-coral transition-all"
+                  />
                 </div>
                 <div>
                   <label className="flex items-center gap-1 text-[10px] font-bold text-slate-400 dark:text-slate-500 mb-1 uppercase tracking-wider">

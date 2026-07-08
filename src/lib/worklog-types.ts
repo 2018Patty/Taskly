@@ -2,6 +2,7 @@ export interface WorkLog {
   id: string;
   user_id: string;
   work_date: string;
+  end_date: string;
   title: string;
   description: string | null;
   start_time: string;
@@ -110,4 +111,9 @@ export function formatShortDate(dateStr: string): string {
   if (!dateStr) return '-';
   const d = new Date(dateStr + 'T00:00:00');
   return d.toLocaleDateString('th-TH', { month: 'short', day: 'numeric' });
+}
+
+export function formatDateRange(startDate: string, endDate: string): string {
+  if (!endDate || endDate === startDate) return formatThaiDate(startDate);
+  return `${formatThaiDate(startDate)} – ${formatThaiDate(endDate)}`;
 }

@@ -27,6 +27,7 @@ function WorklogFormInner() {
 
   /* form state */
   const [workDate,     setWorkDate]     = useState('');
+  const [endDate,      setEndDate]      = useState('');
   const [title,        setTitle]        = useState('');
   const [description,  setDescription]  = useState('');
   const [startTime,    setStartTime]    = useState('09:00');
@@ -55,6 +56,7 @@ function WorklogFormInner() {
       if (error || !data) { setErrorMsg('ไม่พบข้อมูลภาระงาน'); setFetching(false); return; }
       const log = data as WorkLog;
       setWorkDate(log.work_date);
+      setEndDate(log.end_date || log.work_date);
       setTitle(log.title);
       setDescription(log.description ?? '');
       setStartTime(log.start_time.slice(0, 5));
@@ -69,8 +71,17 @@ function WorklogFormInner() {
 
   /* default date for new log */
   useEffect(() => {
-    if (!isEdit) setWorkDate(new Date().toISOString().split('T')[0]);
+    if (!isEdit) {
+      const today = new Date().toISOString().split('T')[0];
+      setWorkDate(today);
+      setEndDate(today);
+    }
   }, [isEdit]);
+
+  const handleWorkDateChange = (date: string) => {
+    setWorkDate(date);
+    if (!endDate || endDate < date) setEndDate(date);
+  };
 
   const ALLOWED_MIME = ['image/jpeg','image/png','image/gif','image/webp'];
   const readAsDataUrl = (file: File): Promise<string> =>
@@ -96,6 +107,8 @@ function WorklogFormInner() {
     e.preventDefault();
     if (!title.trim())  { setErrorMsg('กรุณากรอกชื่องาน'); return; }
     if (!workDate)      { setErrorMsg('กรุณาระบุวันที่ปฏิบัติงาน'); return; }
+    if (!endDate)       { setErrorMsg('กรุณาระบุวันสิ้นสุด'); return; }
+    if (endDate < workDate) { setErrorMsg('วันสิ้นสุดต้องไม่ก่อนวันที่เริ่มต้น'); return; }
     if (hours <= 0)     { setErrorMsg('เวลาสิ้นสุดต้องหลังเวลาเริ่มต้น'); return; }
     if (showRoleInput && !workTypeRole.trim()) { setErrorMsg('กรุณาระบุฐานะ/บทบาท'); return; }
 
@@ -105,6 +118,7 @@ function WorklogFormInner() {
       if (newImageFiles.length > 0) uploadedUrls = await uploadTodoImages(newImageFiles);
       const payload = {
         work_date:      workDate,
+        end_date:       endDate,
         title:          title.trim(),
         description:    description.trim() || null,
         start_time:     startTime,
@@ -218,7 +232,7 @@ function WorklogFormInner() {
                 </div>
                 <div>
                   <label className="block text-[10px] font-bold text-slate-400 mb-1 uppercase tracking-wider">วันที่ *</label>
-                  <input type="date" required value={workDate} onChange={e => setWorkDate(e.target.value)}
+                  <input type="date" required value={workDate} onChange={e => handleWorkDateChange(e.target.value)}
                     className="w-full rounded-xl glass-input px-3 py-2.5 text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-coral transition-all"/>
                 </div>
                 <div>
@@ -235,10 +249,9 @@ function WorklogFormInner() {
                   <span className="text-[10px] font-extrabold text-slate-500 dark:text-slate-400 uppercase tracking-wider">สิ้นสุด</span>
                 </div>
                 <div>
-                  <label className="block text-[10px] font-bold text-slate-400 mb-1 uppercase tracking-wider">วันที่</label>
-                  <div className="w-full rounded-xl px-3 py-2.5 text-sm text-slate-400 dark:text-slate-500 bg-slate-100/60 dark:bg-dark-raised/60 border border-slate-200/40 dark:border-white/5">
-                    วันเดียวกัน
-                  </div>
+                  <label className="block text-[10px] font-bold text-slate-400 mb-1 uppercase tracking-wider">วันที่ *</label>
+                  <input type="date" required min={workDate} value={endDate} onChange={e => setEndDate(e.target.value)}
+                    className="w-full rounded-xl glass-input px-3 py-2.5 text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-coral transition-all"/>
                 </div>
                 <div>
                   <label className="flex items-center gap-1 text-[10px] font-bold text-slate-400 mb-1 uppercase tracking-wider">

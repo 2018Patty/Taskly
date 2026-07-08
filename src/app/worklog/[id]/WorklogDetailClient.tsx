@@ -9,7 +9,7 @@ import { supabase } from '@/lib/supabase';
 import { deleteTodoImages } from '@/lib/storage';
 import {
   WorkLog,
-  calcHours, formatHours, formatThaiDate,
+  calcHours, formatHours, formatThaiDate, formatDateRange,
   getWorkTypeMainCode, getWorkTypeFullLabel,
 } from '@/lib/worklog-types';
 import {
@@ -236,7 +236,7 @@ export default function WorklogDetailClient({ id }: { id: string }) {
             </div>
             <div>
               <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">วันที่ปฏิบัติงาน</span>
-              <span className="text-base font-bold text-slate-800 dark:text-white">{formatThaiDate(log.work_date)}</span>
+              <span className="text-base font-bold text-slate-800 dark:text-white">{formatDateRange(log.work_date, log.end_date)}</span>
             </div>
           </div>
 

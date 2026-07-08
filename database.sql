@@ -70,6 +70,7 @@ create table if not exists public.work_logs (
   id           uuid                     default gen_random_uuid() primary key,
   user_id      uuid                     not null default auth.uid() references auth.users(id) on delete cascade,
   work_date    date                     not null default current_date,
+  end_date     date                     not null default current_date,
   title        text                     not null,
   description  text,
   start_time   time                     not null,
@@ -101,6 +102,16 @@ create policy "Users can delete their own work_logs"
 -- เพิ่ม column exclude_lunch ถ้ายังไม่มี
 alter table public.work_logs
   add column if not exists exclude_lunch boolean not null default false;
+
+-- เพิ่ม column end_date ถ้ายังไม่มี (รองรับภาระงานที่สิ้นสุดคนละวันกับวันที่เริ่มต้น)
+alter table public.work_logs
+  add column if not exists end_date date;
+
+update public.work_logs set end_date = work_date where end_date is null;
+
+alter table public.work_logs
+  alter column end_date set default current_date,
+  alter column end_date set not null;
 
 -- ฟังก์ชันสำหรับดึงข้อมูล worklog เพื่อสร้าง Open Graph meta tags
 -- ทำงานด้วย SECURITY DEFINER (รันในสิทธิ์ postgres) จึงข้าม RLS ได้
