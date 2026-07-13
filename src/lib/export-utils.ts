@@ -6,6 +6,7 @@ import {
 import * as XLSX from 'xlsx';
 import { saveAs } from 'file-saver';
 import type { Todo } from '@/components/task-calendar';
+import type { ScheduleRow } from '@/app/timetable/page';
 import {
   WorkLog, calcHours, formatHours, formatThaiDate,
   getWorkTypeFullLabel, getWorkTypeMainCode,
@@ -343,4 +344,37 @@ export function exportWorklogToExcel(logs: WorkLog[], period: string) {
   XLSX.utils.book_append_sheet(wb, wsSummary, 'สรุป');
 
   XLSX.writeFile(wb, `ภาระงาน_${new Date().toISOString().slice(0, 10)}.xlsx`);
+}
+
+/* ═══════════════════════════════════════════════════════════
+   TIMETABLE EXPORTS
+═══════════════════════════════════════════════════════════ */
+
+const DAY_TH: Record<number, string> = {
+  1: 'จันทร์', 2: 'อังคาร', 3: 'พุธ', 4: 'พฤหัสบดี', 5: 'ศุกร์',
+};
+
+export function exportTimetableToExcel(schedule: ScheduleRow[], semester: string) {
+  const header = ['สัปดาห์', 'วันที่', 'วัน', 'รหัสวิชา', 'กลุ่มเรียน', 'ชื่อวิชา', 'เวลาเริ่ม', 'เวลาสิ้นสุด', 'ห้อง'];
+
+  const rows = schedule.map(row => [
+    row.week < 0 ? `ก่อนเปิดภาค ${-row.week}` : `สัปดาห์ ${row.week}`,
+    row.date.toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: 'numeric' }),
+    DAY_TH[row.entry.day_of_week ?? 0] ?? '',
+    row.entry.course_code,
+    row.entry.section || '',
+    row.entry.course_name,
+    row.entry.start_time?.slice(0, 5) || '',
+    row.entry.end_time?.slice(0, 5) || '',
+    row.entry.room || '',
+  ]);
+
+  const wb = XLSX.utils.book_new();
+  const ws = XLSX.utils.aoa_to_sheet([header, ...rows]);
+  ws['!cols'] = [
+    { wch: 16 }, { wch: 16 }, { wch: 12 }, { wch: 12 }, { wch: 10 },
+    { wch: 36 }, { wch: 10 }, { wch: 10 }, { wch: 10 },
+  ];
+  XLSX.utils.book_append_sheet(wb, ws, 'ตารางสอน');
+  XLSX.writeFile(wb, `ตารางสอน_${semester.replace('/', '-')}_${new Date().toISOString().slice(0, 10)}.xlsx`);
 }

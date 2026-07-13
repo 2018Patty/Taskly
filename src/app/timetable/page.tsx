@@ -9,8 +9,9 @@ import { supabase } from '@/lib/supabase';
 import {
   LogOut, Sun, Moon, Plus, Grid, ClipboardList, BarChart3,
   Sparkles, User, Layers, Upload, Trash2, Edit2, CalendarDays, Wand2, X, Check,
-  CalendarClock, Settings2,
+  CalendarClock, Settings2, FileSpreadsheet,
 } from 'lucide-react';
+import { exportTimetableToExcel } from '@/lib/export-utils';
 
 /* ── Types ── */
 type ParsedEntry = {
@@ -55,7 +56,7 @@ function isTaughtInWeek(entry: TimetableEntry, w: number): boolean {
 }
 
 /* ── Schedule helpers ── */
-type ScheduleRow = { week: number; date: Date; entry: TimetableEntry };
+export type ScheduleRow = { week: number; date: Date; entry: TimetableEntry };
 
 const THAI_MONTHS = ['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'];
 
@@ -784,6 +785,14 @@ export default function TimetablePage() {
                     className="glass-input rounded-xl px-3 py-1.5 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-coral"
                   />
                 </label>
+                <button
+                  onClick={() => exportTimetableToExcel(schedule, semester)}
+                  disabled={schedule.length === 0}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-300/60 dark:border-white/15 bg-white/70 dark:bg-dark-surface/70 text-slate-600 dark:text-slate-300 text-xs font-bold hover:bg-slate-100 dark:hover:bg-dark-raised/70 hover:border-slate-400/60 dark:hover:border-white/25 transition-all shadow-sm disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  <FileSpreadsheet size={14} className="text-emerald-600 dark:text-emerald-400"/>
+                  Export Excel
+                </button>
               </div>
             </div>
 
