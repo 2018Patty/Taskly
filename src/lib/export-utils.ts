@@ -355,7 +355,7 @@ const DAY_TH: Record<number, string> = {
 };
 
 export function exportTimetableToExcel(schedule: ScheduleRow[], semester: string) {
-  const header = ['สัปดาห์', 'วันที่', 'วัน', 'รหัสวิชา', 'กลุ่มเรียน', 'ชื่อวิชา', 'เวลาเริ่ม', 'เวลาสิ้นสุด', 'ห้อง'];
+  const header = ['สัปดาห์', 'วันที่', 'วัน', 'รหัสวิชา', 'กลุ่มเรียน', 'ชื่อวิชา', 'เวลาเริ่ม', 'เวลาสิ้นสุด', 'จำนวนชั่วโมงสอน', 'ห้อง'];
 
   const rows = schedule.map(row => [
     row.week < 0 ? `ก่อนเปิดภาค ${-row.week}` : `สัปดาห์ ${row.week}`,
@@ -366,6 +366,7 @@ export function exportTimetableToExcel(schedule: ScheduleRow[], semester: string
     row.entry.course_name,
     row.entry.start_time?.slice(0, 5) || '',
     row.entry.end_time?.slice(0, 5) || '',
+    row.entry.start_time && row.entry.end_time ? calcHours(row.entry.start_time, row.entry.end_time) : '',
     row.entry.room || '',
   ]);
 
@@ -373,7 +374,7 @@ export function exportTimetableToExcel(schedule: ScheduleRow[], semester: string
   const ws = XLSX.utils.aoa_to_sheet([header, ...rows]);
   ws['!cols'] = [
     { wch: 16 }, { wch: 16 }, { wch: 12 }, { wch: 12 }, { wch: 10 },
-    { wch: 36 }, { wch: 10 }, { wch: 10 }, { wch: 10 },
+    { wch: 36 }, { wch: 10 }, { wch: 10 }, { wch: 14 }, { wch: 10 },
   ];
   XLSX.utils.book_append_sheet(wb, ws, 'ตารางสอน');
   XLSX.writeFile(wb, `ตารางสอน_${semester.replace('/', '-')}_${new Date().toISOString().slice(0, 10)}.xlsx`);
