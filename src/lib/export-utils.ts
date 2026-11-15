@@ -358,7 +358,7 @@ export function exportTimetableToExcel(schedule: ScheduleRow[], semester: string
   const header = ['สัปดาห์', 'วันที่', 'วัน', 'รหัสวิชา', 'กลุ่มเรียน', 'ชื่อวิชา', 'เวลาเริ่ม', 'เวลาสิ้นสุด', 'จำนวนชั่วโมงสอน', 'ห้อง'];
 
   const rows = schedule.map(row => [
-    row.week < 0 ? `ก่อนเปิดภาค ${-row.week}` : `สัปดาห์ ${row.week}`,
+    row.week < 0 ? `ก่อนเปิดภาค ${-row.week}` : row.week > 18 ? `หลังปิดภาค ${row.week - 18}` : `สัปดาห์ ${row.week}`,
     row.date.toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: 'numeric' }),
     DAY_TH[row.entry.day_of_week ?? 0] ?? '',
     row.entry.course_code,

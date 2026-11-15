@@ -1,8 +1,8 @@
 'use client';
 
-import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo, Suspense } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '@/context/auth-context';
 import { useTheme } from '@/context/theme-context';
 import { supabase } from '@/lib/supabase';
@@ -44,9 +44,9 @@ export type TimetableEntry = {
 
 /* ── Constants ── */
 const TIME_START = 8 * 60;
-const TIME_END = 17 * 60;
+const TIME_END = 20 * 60;
 const TOTAL_MIN = TIME_END - TIME_START;
-const HOURS = [8, 9, 10, 11, 12, 13, 14, 15, 16, 17];
+const HOURS = Array.from({ length: (TIME_END - TIME_START) / 60 + 1 }, (_, i) => 8 + i);
 const LANE_H = 54;
 const TOTAL_WEEKS = 18;
 const ALL_WEEKS = Array.from({ length: TOTAL_WEEKS }, (_, i) => i + 1);
@@ -59,6 +59,9 @@ function isTaughtInWeek(entry: TimetableEntry, w: number): boolean {
 export type ScheduleRow = { week: number; date: Date; entry: TimetableEntry };
 
 const THAI_MONTHS = ['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'];
+
+/** Weeks after the last regular week (19, 20, …) are post-class weeks. */
+const postIndex = (week: number) => week - TOTAL_WEEKS;
 
 function calcDate(startISO: string, week: number, dayOfWeek: number): Date {
   const base = new Date(startISO);
@@ -92,6 +95,13 @@ const DAYS = [
 ];
 
 const SEMESTERS = ['1/2026','2/2026','1/2025','2/2025','1/2024','2/2024'];
+const DEFAULT_SEMESTER = '1/2026';
+
+/** Sort key for "term/year" strings, e.g. "2/2026" → 2026*10 + 2. */
+function semesterRank(sem: string): number {
+  const [term, year] = sem.split('/').map(Number);
+  return (year || 0) * 10 + (term || 0);
+}
 
 const COLORS: Record<string, { light: string; text: string; dot: string }> = {
   sky:    { light: 'bg-sky-100 border-sky-300',    text: 'text-sky-800',    dot: 'bg-sky-400' },
@@ -136,15 +146,19 @@ function assignLanes(entries: TimetableEntry[]): Array<TimetableEntry & { lane: 
 }
 
 /* ── Component ── */
-export default function TimetablePage() {
+function TimetablePageInner() {
   const { user, loading: authLoading, signOut } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const router = useRouter();
+  const searchParams = useSearchParams();
 
   const [entries, setEntries] = useState<TimetableEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [dbError, setDbError] = useState(false);
-  const [semester, setSemester] = useState('1/2026');
+  const semesterParam = searchParams.get('semester');
+  const [semester, setSemester] = useState(() => semesterParam || DEFAULT_SEMESTER);
+  // When no semester is given in the URL, wait until the latest semester with data is resolved
+  const [semesterReady, setSemesterReady] = useState(!!semesterParam);
   const [refImage, setRefImage] = useState<string | null>(null);
   const [uploadingImg, setUploadingImg] = useState(false);
   const [parsing, setParsing] = useState(false);
@@ -155,8 +169,29 @@ export default function TimetablePage() {
   const [semesterPreWeeks, setSemesterPreWeeks] = useState<number>(0);
   const fileRef = useRef<HTMLInputElement>(null);
 
+  /* Pick the most recent semester that has data (only when the URL doesn't specify one) */
+  useEffect(() => {
+    if (!user || semesterReady) return;
+    (async () => {
+      const { data } = await supabase
+        .from('timetable_entries')
+        .select('semester')
+        .eq('user_id', user.id);
+      const sems = Array.from(new Set((data ?? []).map(r => r.semester as string).filter(Boolean)));
+      if (sems.length > 0) {
+        setSemester(sems.reduce((a, b) => (semesterRank(b) > semesterRank(a) ? b : a)));
+      }
+      setSemesterReady(true);
+    })();
+  }, [user, semesterReady]);
+
+  const semesterOptions = useMemo(
+    () => (SEMESTERS.includes(semester) ? SEMESTERS : [semester, ...SEMESTERS]),
+    [semester],
+  );
+
   const fetchEntries = useCallback(async () => {
-    if (!user) return;
+    if (!user || !semesterReady) return;
     setLoading(true);
     const { data, error } = await supabase
       .from('timetable_entries')
@@ -172,7 +207,7 @@ export default function TimetablePage() {
       setEntries(data ?? []);
     }
     setLoading(false);
-  }, [user, semester]);
+  }, [user, semester, semesterReady]);
 
   useEffect(() => { if (user) fetchEntries(); }, [user, fetchEntries]);
 
@@ -288,6 +323,13 @@ export default function TimetablePage() {
     colorMap[code] = entry?.color && COLORS[entry.color] ? entry.color : COLOR_KEYS[i % COLOR_KEYS.length];
   });
 
+  /* One row per course + section for the weekly summary */
+  const courseSections = Array.from(
+    new Map(entries.map(e => [`${e.course_code}|${e.section ?? ''}`, { code: e.course_code, section: e.section ?? null }])).entries()
+  )
+    .map(([key, v]) => ({ key, ...v }))
+    .sort((a, b) => a.code.localeCompare(b.code) || (a.section ?? '').localeCompare(b.section ?? '', undefined, { numeric: true }));
+
   const byDay = DAYS.reduce<Record<number, TimetableEntry[]>>((acc, d) => {
     acc[d.key] = entries.filter(e => e.day_of_week === d.key);
     return acc;
@@ -327,13 +369,19 @@ export default function TimetablePage() {
     return neg.length > 0 ? Math.abs(Math.min(...neg)) : 0;
   }, [entries]);
 
+  const postWeekCount = useMemo(() => {
+    const post = entries.flatMap(e => (e.weeks || []).filter(w => w > TOTAL_WEEKS));
+    return post.length > 0 ? postIndex(Math.max(...post)) : 0;
+  }, [entries]);
+
   const extendedWeeks = useMemo(() => {
     const totalPre = Math.max(preWeekCount, semesterPreWeeks);
     return [
       ...Array.from({ length: totalPre }, (_, i) => -(totalPre - i)),
       ...ALL_WEEKS,
+      ...Array.from({ length: postWeekCount }, (_, i) => TOTAL_WEEKS + i + 1),
     ];
-  }, [preWeekCount, semesterPreWeeks]);
+  }, [preWeekCount, semesterPreWeeks, postWeekCount]);
 
   const allScheduleWeeks = useMemo(() => {
     const weekSet = new Set<number>(groupedWeeks.map(g => g.week));
@@ -404,9 +452,12 @@ export default function TimetablePage() {
           <div className="flex flex-wrap items-center gap-2">
             <select
               value={semester}
-              onChange={e => setSemester(e.target.value)}
+              onChange={e => {
+                setSemester(e.target.value);
+                router.replace(`/timetable?semester=${encodeURIComponent(e.target.value)}`);
+              }}
               className="glass-input rounded-xl px-3 py-2 text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-coral">
-              {SEMESTERS.map(s => <option key={s} value={s} className="bg-white dark:bg-dark-surface">ภาคเรียน {s}</option>)}
+              {semesterOptions.map(s => <option key={s} value={s} className="bg-white dark:bg-dark-surface">ภาคเรียน {s}</option>)}
             </select>
             <button
               onClick={() => fileRef.current?.click()}
@@ -470,7 +521,7 @@ export default function TimetablePage() {
           </div>
 
           <div className="overflow-x-auto">
-            <div className="min-w-215 p-4 space-y-0">
+            <div className="min-w-280 p-4 space-y-0">
 
               {/* Time header */}
               <div className="flex mb-1">
@@ -537,6 +588,9 @@ export default function TimetablePage() {
                             }}>
                             {entry.weeks?.some(w => w < 0) && (
                               <div className="absolute top-1 right-1 w-2 h-2 rounded-full bg-violet-500 shadow-sm shadow-violet-500/50" title="มีสอนก่อนเปิดภาค"/>
+                            )}
+                            {entry.weeks?.some(w => w > TOTAL_WEEKS) && (
+                              <div className={`absolute top-1 ${entry.weeks?.some(w => w < 0) ? 'right-4' : 'right-1'} w-2 h-2 rounded-full bg-amber-500 shadow-sm shadow-amber-500/50`} title="มีสอนหลังปิดภาค"/>
                             )}
                             <div className="px-2 py-1 h-full overflow-hidden flex flex-col justify-center">
                               <div className={`text-[10px] font-extrabold leading-tight truncate ${col.text}`}>
@@ -629,6 +683,11 @@ export default function TimetablePage() {
                               ก่อนภาค
                             </span>
                           )}
+                          {courseEntries.some(e => (e.weeks || []).some(w => w > TOTAL_WEEKS)) && (
+                            <span className="inline-flex items-center text-[9px] font-bold text-amber-700 dark:text-amber-300 bg-amber-100 dark:bg-amber-900/40 border border-amber-300 dark:border-amber-700/50 px-1.5 py-0.5 rounded-md leading-tight normal-case tracking-normal">
+                              หลังภาค
+                            </span>
+                          )}
                         </div>
                         <div className="text-sm font-bold text-slate-800 dark:text-slate-900 mt-0.5 leading-tight">{first.course_name}</div>
                         {first.credits && (
@@ -698,7 +757,9 @@ export default function TimetablePage() {
               <span className="text-sm font-extrabold text-slate-700 dark:text-white">สรุปตารางรายสัปดาห์</span>
               <span className="text-xs text-slate-400 ml-2">
                 {extendedWeeks.some(w => w < 0) && <span className="text-violet-400 font-bold">+{extendedWeeks.filter(w => w < 0).length} ก่อนภาค · </span>}
-                {TOTAL_WEEKS} สัปดาห์ · ภาคเรียน {semester}
+                {TOTAL_WEEKS} สัปดาห์
+                {postWeekCount > 0 && <span className="text-amber-500 font-bold"> · +{postWeekCount} หลังภาค</span>}
+                {' '}· ภาคเรียน {semester}
               </span>
             </div>
             <div className="p-4">
@@ -708,26 +769,29 @@ export default function TimetablePage() {
                     <th className="text-left text-[10px] font-extrabold text-slate-400 uppercase tracking-wider pr-3 pb-2 w-52">วิชา</th>
                     {extendedWeeks.map((w, idx) => {
                       const isLastPre = w < 0 && idx + 1 < extendedWeeks.length && extendedWeeks[idx + 1] > 0;
+                      const isFirstPost = w === TOTAL_WEEKS + 1;
                       return (
-                        <th key={w} className={`text-center text-[10px] font-bold pb-2 px-0.5 ${w < 0 ? 'text-violet-400' : 'text-slate-400'} ${isLastPre ? 'border-r-2 border-violet-300 dark:border-violet-700' : ''}`}>
-                          {w < 0 ? `P${-w}` : w}
+                        <th key={w} className={`text-center text-[10px] font-bold pb-2 px-0.5 ${w < 0 ? 'text-violet-400' : w > TOTAL_WEEKS ? 'text-amber-500' : 'text-slate-400'} ${isLastPre ? 'border-r-2 border-violet-300 dark:border-violet-700' : ''} ${isFirstPost ? 'border-l-2 border-amber-300 dark:border-amber-700' : ''}`}>
+                          {w < 0 ? `P${-w}` : w > TOTAL_WEEKS ? `+${postIndex(w)}` : w}
                         </th>
                       );
                     })}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 dark:divide-white/5">
-                  {courseCodes.map(code => {
-                    const courseEntries = entries.filter(e => e.course_code === code);
+                  {courseSections.map(({ key, code, section }) => {
+                    const courseEntries = entries.filter(e => e.course_code === code && (e.section ?? null) === section);
                     const colorKey = colorMap[code] || 'sky';
                     const col = COLORS[colorKey] || COLORS.sky;
                     return (
-                      <tr key={code}>
+                      <tr key={key}>
                         <td className="pr-3 py-2">
                           <div className="flex items-center gap-1.5 min-w-0">
                             <div className={`w-2 h-2 rounded-full shrink-0 ${col.dot}`}/>
                             <div className="min-w-0">
-                              <div className={`font-extrabold text-[11px] truncate ${col.text}`}>{code}</div>
+                              <div className={`font-extrabold text-[11px] truncate ${col.text}`}>
+                                {code}{section && <span className="font-semibold opacity-70"> (Sec {section})</span>}
+                              </div>
                               <div className="text-[10px] text-slate-400 truncate leading-tight">{courseEntries[0]?.course_name}</div>
                             </div>
                           </div>
@@ -735,8 +799,9 @@ export default function TimetablePage() {
                         {extendedWeeks.map((w, idx) => {
                           const taught = courseEntries.some(e => isTaughtInWeek(e, w));
                           const isLastPre = w < 0 && idx + 1 < extendedWeeks.length && extendedWeeks[idx + 1] > 0;
+                          const isFirstPost = w === TOTAL_WEEKS + 1;
                           return (
-                            <td key={w} className={`py-1 px-0.5 ${isLastPre ? 'border-r-2 border-violet-300 dark:border-violet-700' : ''}`}>
+                            <td key={w} className={`py-1 px-0.5 ${isLastPre ? 'border-r-2 border-violet-300 dark:border-violet-700' : ''} ${isFirstPost ? 'border-l-2 border-amber-300 dark:border-amber-700' : ''}`}>
                               <div className={`h-5 rounded ${taught ? col.dot : ''}`}/>
                             </td>
                           );
@@ -815,6 +880,9 @@ export default function TimetablePage() {
                 {allScheduleWeeks.map((week, idx) => {
                   const prevWeek = idx > 0 ? allScheduleWeeks[idx - 1] : null;
                   const isFirstRegular = week > 0 && prevWeek !== null && prevWeek < 0;
+                  const isFirstPost = week > TOTAL_WEEKS && (prevWeek === null || prevWeek <= TOTAL_WEEKS);
+                  const isPre = week < 0;
+                  const isPost = week > TOTAL_WEEKS;
                   const rows = groupedWeeks.find(g => g.week === week)?.rows ?? [];
                   return (
                     <React.Fragment key={week}>
@@ -830,32 +898,42 @@ export default function TimetablePage() {
                         </div>
                       )}
 
+                      {/* ── Semester-end separator ── */}
+                      {isFirstPost && (
+                        <div className="flex items-center gap-3 px-5 py-3 bg-amber-50 dark:bg-amber-950/25 border-y border-amber-200 dark:border-amber-800/50">
+                          <div className="flex-1 h-px bg-amber-300 dark:bg-amber-700/50"/>
+                          <span className="text-[10px] font-extrabold text-amber-700 dark:text-amber-400 uppercase tracking-widest whitespace-nowrap">
+                            ปิดภาคการศึกษา
+                          </span>
+                          <div className="flex-1 h-px bg-amber-300 dark:bg-amber-700/50"/>
+                        </div>
+                      )}
+
                       {/* ── Week block ── */}
-                      <div className={week < 0 ? 'border-l-4 border-violet-400 dark:border-violet-500 bg-violet-50/50 dark:bg-violet-950/20' : ''}>
+                      <div className={isPre ? 'border-l-4 border-violet-400 dark:border-violet-500 bg-violet-50/50 dark:bg-violet-950/20' : isPost ? 'border-l-4 border-amber-400 dark:border-amber-500 bg-amber-50/50 dark:bg-amber-950/20' : ''}>
 
                         {/* Week header */}
                         <div className={`flex items-center justify-between px-5 py-2.5 border-b sticky top-0 z-10 ${
-                          week < 0
-                            ? 'bg-violet-100/80 dark:bg-violet-900/50 border-violet-200 dark:border-violet-700/40'
+                          isPre ? 'bg-violet-100/80 dark:bg-violet-900/50 border-violet-200 dark:border-violet-700/40' : isPost ? 'bg-amber-100/80 dark:bg-amber-900/50 border-amber-200 dark:border-amber-700/40'
                             : 'bg-slate-50/80 dark:bg-dark-raised/60 border-slate-200/30 dark:border-white/5'
                         }`}>
                           <div className="flex items-center gap-2">
-                            <span className={`text-xs font-extrabold uppercase tracking-wide ${week < 0 ? 'text-violet-700 dark:text-violet-200' : 'text-slate-700 dark:text-slate-200'}`}>
-                              {week < 0 ? `ก่อนเปิดภาค · สัปดาห์ที่ ${-week}` : `สัปดาห์ที่ ${week}`}
+                            <span className={`text-xs font-extrabold uppercase tracking-wide ${isPre ? 'text-violet-700 dark:text-violet-200' : isPost ? 'text-amber-700 dark:text-amber-200' : 'text-slate-700 dark:text-slate-200'}`}>
+                              {isPre ? `ก่อนเปิดภาค · สัปดาห์ที่ ${-week}` : isPost ? `หลังปิดภาค · สัปดาห์ที่ ${postIndex(week)}` : `สัปดาห์ที่ ${week}`}
                             </span>
-                            {week < 0 && rows.length > 0 && (
-                              <span className="text-[9px] font-bold text-white bg-violet-500 px-1.5 py-0.5 rounded-full">
+                            {(isPre || isPost) && rows.length > 0 && (
+                              <span className={`text-[9px] font-bold text-white ${isPre ? 'bg-violet-500' : 'bg-amber-500'} px-1.5 py-0.5 rounded-full`}>
                                 {rows.length} คาบ
                               </span>
                             )}
                           </div>
-                          <span className={`text-[11px] ${week < 0 ? 'text-violet-500 dark:text-violet-400' : 'text-slate-400'}`}>
+                          <span className={`text-[11px] ${isPre ? 'text-violet-500 dark:text-violet-400' : isPost ? 'text-amber-500 dark:text-amber-400' : 'text-slate-400'}`}>
                             {weekDateRange(semesterStart, week)}
                           </span>
                         </div>
 
                         {/* Session rows or empty-pre-class placeholder */}
-                        {rows.length === 0 && week < 0 ? (
+                        {rows.length === 0 && isPre ? (
                           <div className="px-5 py-3.5 flex items-center gap-2.5 border-b border-violet-100 dark:border-violet-900/30">
                             <div className="w-1 h-6 rounded-full bg-violet-300 dark:bg-violet-700 shrink-0"/>
                             <span className="text-xs text-violet-500 dark:text-violet-400 italic">ยังไม่มีวิชาที่กำหนดสอนในสัปดาห์นี้</span>
@@ -870,8 +948,7 @@ export default function TimetablePage() {
                                 key={i}
                                 onClick={() => router.push(`/timetable/form?id=${row.entry.id}&semester=${semester}`)}
                                 className={`flex items-center gap-3 px-5 py-3 border-b cursor-pointer transition-colors ${
-                                  week < 0
-                                    ? 'border-violet-100 dark:border-violet-900/25 hover:bg-violet-100/60 dark:hover:bg-violet-900/30'
+                                  isPre ? 'border-violet-100 dark:border-violet-900/25 hover:bg-violet-100/60 dark:hover:bg-violet-900/30' : isPost ? 'border-amber-100 dark:border-amber-900/25 hover:bg-amber-100/60 dark:hover:bg-amber-900/30'
                                     : 'border-slate-100 dark:border-white/5 hover:bg-slate-50/50 dark:hover:bg-dark-raised/20'
                                 }`}
                               >
@@ -880,8 +957,8 @@ export default function TimetablePage() {
 
                                 {/* Day + date */}
                                 <div className="w-24 shrink-0">
-                                  <div className={`text-xs font-bold ${week < 0 ? 'text-violet-700 dark:text-violet-200' : 'text-slate-700 dark:text-slate-200'}`}>{day?.th}</div>
-                                  <div className={`text-[11px] ${week < 0 ? 'text-violet-400 dark:text-violet-500' : 'text-slate-400'}`}>{fmtDateShort(row.date)}</div>
+                                  <div className={`text-xs font-bold ${isPre ? 'text-violet-700 dark:text-violet-200' : isPost ? 'text-amber-700 dark:text-amber-200' : 'text-slate-700 dark:text-slate-200'}`}>{day?.th}</div>
+                                  <div className={`text-[11px] ${isPre ? 'text-violet-400 dark:text-violet-500' : isPost ? 'text-amber-400 dark:text-amber-500' : 'text-slate-400'}`}>{fmtDateShort(row.date)}</div>
                                 </div>
 
                                 {/* Course info */}
@@ -890,17 +967,17 @@ export default function TimetablePage() {
                                     {row.entry.course_code}
                                     {row.entry.section ? <span className="font-semibold opacity-70 ml-1">(Sec {row.entry.section})</span> : null}
                                   </div>
-                                  <div className={`text-[11px] truncate ${week < 0 ? 'text-violet-700/70 dark:text-violet-300/70' : 'text-slate-600 dark:text-slate-300'}`}>{row.entry.course_name}</div>
+                                  <div className={`text-[11px] truncate ${isPre ? 'text-violet-700/70 dark:text-violet-300/70' : isPost ? 'text-amber-700/70 dark:text-amber-300/70' : 'text-slate-600 dark:text-slate-300'}`}>{row.entry.course_name}</div>
                                 </div>
 
                                 {/* Time */}
-                                <div className={`text-xs shrink-0 whitespace-nowrap font-medium ${week < 0 ? 'text-violet-600 dark:text-violet-300' : 'text-slate-500 dark:text-slate-400'}`}>
+                                <div className={`text-xs shrink-0 whitespace-nowrap font-medium ${isPre ? 'text-violet-600 dark:text-violet-300' : isPost ? 'text-amber-600 dark:text-amber-300' : 'text-slate-500 dark:text-slate-400'}`}>
                                   {fmtTime(row.entry.start_time)}–{fmtTime(row.entry.end_time)}
                                 </div>
 
                                 {/* Room */}
                                 {row.entry.room && (
-                                  <div className={`text-xs shrink-0 hidden sm:block ${week < 0 ? 'text-violet-400 dark:text-violet-500' : 'text-slate-400'}`}>{row.entry.room}</div>
+                                  <div className={`text-xs shrink-0 hidden sm:block ${isPre ? 'text-violet-400 dark:text-violet-500' : isPost ? 'text-amber-400 dark:text-amber-500' : 'text-slate-400'}`}>{row.entry.room}</div>
                                 )}
                               </div>
                             );
@@ -1016,5 +1093,17 @@ export default function TimetablePage() {
         </div>
       )}
     </div>
+  );
+}
+
+export default function TimetablePage() {
+  return (
+    <Suspense fallback={
+      <div className="flex min-h-screen items-center justify-center bg-slate-50 dark:bg-dark-base">
+        <div className="h-10 w-10 animate-spin rounded-full border-4 border-coral border-t-transparent"/>
+      </div>
+    }>
+      <TimetablePageInner/>
+    </Suspense>
   );
 }
