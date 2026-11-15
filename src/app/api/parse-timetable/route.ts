@@ -1,5 +1,8 @@
 import Anthropic from '@anthropic-ai/sdk';
 
+// Image parsing takes ~1 minute; allow up to 2 minutes on Vercel
+export const maxDuration = 120;
+
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
 export async function POST(request: Request) {
