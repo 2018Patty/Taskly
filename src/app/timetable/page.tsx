@@ -149,6 +149,7 @@ export default function TimetablePage() {
   const [uploadingImg, setUploadingImg] = useState(false);
   const [parsing, setParsing] = useState(false);
   const [parsedEntries, setParsedEntries] = useState<ParsedEntry[] | null>(null);
+  const [parseError, setParseError] = useState<string | null>(null);
   const [saveProgress, setSaveProgress] = useState<{ done: number; total: number } | null>(null);
   const [semesterStart, setSemesterStart] = useState<string>('');
   const [semesterPreWeeks, setSemesterPreWeeks] = useState<number>(0);
@@ -234,10 +235,12 @@ export default function TimetablePage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ imageUrl: refImage }),
       });
-      const { entries } = await res.json();
+      const { entries, error } = await res.json();
+      setParseError(error ?? (res.ok ? null : `HTTP ${res.status}`));
       setParsedEntries(entries ?? []);
     } catch (err) {
       console.error('Parse error:', err);
+      setParseError(err instanceof Error ? err.message : 'เกิดข้อผิดพลาด');
       setParsedEntries([]);
     } finally {
       setParsing(false);
@@ -951,7 +954,10 @@ export default function TimetablePage() {
             {/* Entry list */}
             <div className="overflow-y-auto flex-1 p-4 space-y-2">
               {parsedEntries.length === 0 ? (
-                <p className="text-center text-sm text-slate-500 py-8">ไม่พบข้อมูลวิชาในรูปภาพนี้</p>
+                <p className="text-center text-sm text-slate-500 py-8">
+                  ไม่พบข้อมูลวิชาในรูปภาพนี้
+                  {parseError && <span className="block mt-2 text-xs text-red-500">{parseError}</span>}
+                </p>
               ) : (
                 parsedEntries.map((e, i) => {
                   const dayName = e.day_of_week ? DAYS.find(d => d.key === e.day_of_week)?.en : null;
